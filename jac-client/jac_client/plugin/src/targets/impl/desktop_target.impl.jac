@@ -1726,6 +1726,7 @@ def _copy_assets_to_dist(project_dir: Path, dist_dir: Path) -> None {
 
     if not compiled_assets.exists() {
         return;  # No assets to copy
+
     }
 
     # Create static directory and copy assets

@@ -761,26 +761,85 @@ test "desktop build copies assets to dist" {
     with tempfile.TemporaryDirectory() as temp_dir {
         project_dir = Path(temp_dir) / app_name;
         project_dir.mkdir(parents=True);
-
         # Create assets directory with a test image (1x1 PNG)
         assets_dir = project_dir / "assets";
         assets_dir.mkdir(parents=True);
-
         # Create a minimal valid PNG file (1x1 pixel)
-        png_data = bytes([
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
-            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
-            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
-            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
-            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
-            0x44, 0xAE, 0x42, 0x60, 0x82
-        ]);
+        png_data = bytes(
+            [
+                0x89,
+                0x50,
+                0x4E,
+                0x47,
+                0x0D,
+                0x0A,
+                0x1A,
+                0x0A,
+                0x00,
+                0x00,
+                0x00,
+                0x0D,
+                0x49,
+                0x48,
+                0x44,
+                0x52,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+                0x00,
+                0x00,
+                0x00,
+                0x01,
+                0x08,
+                0x02,
+                0x00,
+                0x00,
+                0x00,
+                0x90,
+                0x77,
+                0x53,
+                0xDE,
+                0x00,
+                0x00,
+                0x00,
+                0x0C,
+                0x49,
+                0x44,
+                0x41,
+                0x54,
+                0x08,
+                0xD7,
+                0x63,
+                0xF8,
+                0xFF,
+                0xFF,
+                0x3F,
+                0x00,
+                0x05,
+                0xFE,
+                0x02,
+                0xFE,
+                0xDC,
+                0xCC,
+                0x59,
+                0xE7,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x49,
+                0x45,
+                0x4E,
+                0x44,
+                0xAE,
+                0x42,
+                0x60,
+                0x82
+            ]
+        );
         (assets_dir / "test-image.png").write_bytes(png_data);
         print(f"[DEBUG] Created test asset at {assets_dir / 'test-image.png'}");
-
         # Create main.jac that references the asset with /static/assets/ URL
         main_jac_with_asset = '''"""App with asset for testing."""
 
@@ -795,15 +854,12 @@ cl {
 ''';
         (project_dir / "main.jac").write_text(main_jac_with_asset);
         (project_dir / "jac.toml").write_text(get_minimal_jac_toml(app_name));
-
         jac_cmd = get_jac_command();
         env = get_env_with_npm();
-
         # Setup desktop
         print("[DEBUG] Setting up desktop target");
         (returncode, _, stderr) = run_jac_setup_desktop(project_dir);
         assert returncode == 0 , f"Desktop setup failed: {stderr}";
-
         # Install npm packages
         print("[DEBUG] Installing npm packages");
         npm_result = run(
@@ -817,7 +873,6 @@ cl {
         if npm_result.returncode != 0 {
             pytest.skip(f"npm install failed: {npm_result.stderr}");
         }
-
         # Build desktop target (this triggers asset copying to dist/static/assets/)
         print("[DEBUG] Building desktop target (this may take several minutes)");
         build_result = run(
@@ -838,18 +893,17 @@ cl {
             f"STDOUT:\n{build_result.stdout}\n"
             f"STDERR:\n{build_result.stderr}"
         );
-
         # Verify assets were copied to compiled directory
         compiled_assets = project_dir / ".jac" / "client" / "compiled" / "assets";
         print(f"[DEBUG] Checking compiled assets at {compiled_assets}");
         assert compiled_assets.exists() , "compiled/assets/ should exist after build";
-
         compiled_test_image = compiled_assets / "test-image.png";
         assert compiled_test_image.exists() , (
             f"test-image.png should be copied to compiled/assets/. "
-            f"Contents: {list(compiled_assets.iterdir()) if compiled_assets.exists() else 'N/A'}"
+            f"Contents: {list(compiled_assets.iterdir())
+                if compiled_assets.exists()
+                else 'N/A'}"
         );
-
         # Verify assets were copied to dist/static/assets for desktop serving
         dist_dir = project_dir / ".jac" / "client" / "dist";
         dist_static_assets = dist_dir / "static" / "assets";
@@ -858,18 +912,17 @@ cl {
             f"dist/static/assets/ should exist after desktop build. "
             f"dist contents: {list(dist_dir.iterdir()) if dist_dir.exists() else 'N/A'}"
         );
-
         dist_test_image = dist_static_assets / "test-image.png";
         assert dist_test_image.exists() , (
             f"test-image.png should be copied to dist/static/assets/. "
-            f"Contents: {list(dist_static_assets.iterdir()) if dist_static_assets.exists() else 'N/A'}"
+            f"Contents: {list(dist_static_assets.iterdir())
+                if dist_static_assets.exists()
+                else 'N/A'}"
         );
-
         # Verify the file content is correct
         assert dist_test_image.read_bytes() == png_data , (
             "Copied image should have same content as original"
         );
-
         print("[DEBUG] Desktop asset copying test passed!");
     }
 }
