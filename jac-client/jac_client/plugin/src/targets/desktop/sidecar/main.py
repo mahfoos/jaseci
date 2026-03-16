@@ -137,6 +137,21 @@ def main():
     # Get the console now that jaclang is available
     from jaclang.cli.console import console
 
+    # Determine data path (writable location for runtime data)
+    # IMPORTANT: Must be set BEFORE Jac.jac_import so jac-scale config reads the correct path
+    if args.data_path:
+        data_path = Path(args.data_path).resolve()
+    else:
+        # Default: ~/.local/share/jac-app/.jac (Linux)
+        # This ensures we have a writable location even if base_path is read-only (e.g., AppImage)
+        data_path = Path.home() / ".local" / "share" / "jac-app"
+    data_path.mkdir(parents=True, exist_ok=True)
+    os.environ["JAC_DATA_PATH"] = str(data_path)
+
+    # Change working directory to writable data path
+    # This ensures relative paths like .jac/ work in read-only AppImage environments
+    os.chdir(data_path)
+
     # Initialize Jac runtime
     try:
         # Import the module
@@ -153,22 +168,9 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Determine data path (writable location for runtime data)
-    if args.data_path:
-        data_path = Path(args.data_path).resolve()
-    else:
-        # Default: ~/.local/share/jac-app/.jac (Linux)
-        # This ensures we have a writable location even if base_path is read-only (e.g., AppImage)
-        data_path = Path.home() / ".local" / "share" / "jac-app"
-    data_path.mkdir(parents=True, exist_ok=True)
-
-    # Set JAC_DATA_PATH so the memory system uses writable data_path instead of read-only base_path
-    os.environ["JAC_DATA_PATH"] = str(data_path)
-
     # Create and start the API server
     try:
         # Get server class (allows plugins like jac-scale to provide enhanced server)
-        # Note: JAC_DATA_PATH env var is already set above for writable data storage
         server_class = Jac.get_api_server_class()
         server = server_class(
             module_name=module_name, port=port, base_path=str(base_path)
