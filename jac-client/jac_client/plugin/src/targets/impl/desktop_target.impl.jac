@@ -2335,6 +2335,8 @@ def _bundle_sidecar_pyinstaller(
     with open(entry_script, "w") as f {
         f.write('''#!/usr/bin/env python3
 # Entry point for PyInstaller-bundled sidecar
+# Plugin registration for frozen apps is handled in sidecar/main.py
+
 from jac_client.plugin.src.targets.desktop.sidecar.main import main
 if __name__ == "__main__":
     main()
@@ -2464,20 +2466,65 @@ hiddenimports = [
     'tomli',
 ]
 
-# Try to add jac-scale if installed
+# Try to add jac-scale if installed (includes FastAPI/uvicorn dependencies)
 try:
     import jac_scale
     hiddenimports.extend([
         'jac_scale',
         'jac_scale.plugin',
+        # FastAPI and dependencies
+        'fastapi',
+        'fastapi.applications',
+        'fastapi.routing',
+        'fastapi.middleware',
+        'fastapi.middleware.cors',
+        'starlette',
+        'starlette.applications',
+        'starlette.routing',
+        'starlette.middleware',
+        'starlette.middleware.cors',
+        'uvicorn',
+        'uvicorn.main',
+        'uvicorn.config',
+        'uvicorn.lifespan',
+        'uvicorn.lifespan.on',
+        'uvicorn.protocols',
+        'uvicorn.protocols.http',
+        'uvicorn.protocols.http.h11_impl',
+        'uvicorn.protocols.websockets',
+        'uvicorn.loops',
+        'uvicorn.loops.auto',
+        'httptools',
+        'websockets',
+        'h11',
+        'anyio',
+        'sniffio',
+        'redis',
+        'pydantic',
+        'pydantic_core',
     ])
 except ImportError:
     pass
 
 # Collect all jaclang data files (.jac files, etc.)
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 datas = []
+
+# Copy package metadata (preserves entry points for plugin discovery)
+try:
+    datas += copy_metadata('jaclang')
+except Exception:
+    pass
+try:
+    datas += copy_metadata('jac_scale')
+except Exception:
+    pass
+try:
+    datas += copy_metadata('jac_client')
+except Exception:
+    pass
+
 try:
     datas += collect_data_files('jaclang', include_py_files=True)
 except Exception:

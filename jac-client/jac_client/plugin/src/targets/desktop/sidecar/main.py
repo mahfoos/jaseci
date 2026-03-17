@@ -129,12 +129,26 @@ def main():
     # Import Jac runtime and server
     try:
         # Import jaclang (must be installed via pip)
-        from jaclang.jac0core.runtime import JacRuntime as Jac
+        from jaclang.jac0core.runtime import JacRuntime as Jac, plugin_manager
     except ImportError as e:
         # Console not available (jaclang import failed)
         sys.stderr.write(f"Error: Failed to import Jac runtime: {e}\n")
         sys.stderr.write("  Make sure jaclang is installed: pip install jaclang\n")
         sys.exit(1)
+
+    # Register jac-scale plugin manually for PyInstaller bundles.
+    # Entry point discovery fails in frozen apps, so we register explicitly.
+    if getattr(sys, "frozen", False):
+        try:
+            from jac_scale.plugin import JacCmd
+
+            if not plugin_manager.is_registered(JacCmd):
+                plugin_manager.register(JacCmd, name="scale")
+                sys.stderr.write("[sidecar] Registered jac-scale plugin\n")
+        except ImportError:
+            sys.stderr.write("[sidecar] jac-scale not bundled\n")
+        except Exception as e:
+            sys.stderr.write(f"[sidecar] Plugin registration error: {e}\n")
 
     # Get the console now that jaclang is available
     from jaclang.cli.console import console
