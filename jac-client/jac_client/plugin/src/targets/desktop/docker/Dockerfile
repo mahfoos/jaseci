@@ -119,4 +119,4 @@ ENV JAC_PRODUCTION_BUILD=1
 WORKDIR /project
 
 # Default command shows help
-CMD ["echo", "Usage: docker run -v $(pwd):/project jac-desktop-builder jac build desktop"]
+CMD ["echo", "Usage: docker run -v $(pwd):/project jac-desktop-builder jac build main.jac --client desktop"]

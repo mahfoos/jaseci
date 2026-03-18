@@ -142,7 +142,25 @@ docker run --rm \
 
         echo ""
         echo "=== Building desktop app ==="
-        jac build desktop
+        # Find the main entry file
+        ENTRY_FILE=""
+        if [ -f main.jac ]; then
+            ENTRY_FILE="main.jac"
+        elif [ -f app.jac ]; then
+            ENTRY_FILE="app.jac"
+        elif [ -f index.jac ]; then
+            ENTRY_FILE="index.jac"
+        else
+            ENTRY_FILE=$(ls *.jac 2>/dev/null | head -1)
+        fi
+
+        if [ -z "$ENTRY_FILE" ]; then
+            echo "ERROR: No .jac entry file found"
+            exit 1
+        fi
+
+        echo "Entry file: $ENTRY_FILE"
+        jac build "$ENTRY_FILE" --client desktop
 
         echo ""
         echo "=== Build complete! ==="

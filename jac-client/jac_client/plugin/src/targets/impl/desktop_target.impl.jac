@@ -1778,9 +1778,10 @@ def _check_and_install_tauri_cli() -> None {
 Uses super().build() to get the web bundle, then adds sidecar and Tauri wrapping.
 """
 impl DesktopTarget.build(
-    entry_file: Path, project_dir: Path, platform: Optional[str] = None
+    entry_file: Path, project_dir: Path, target_platform: Optional[str] = None
 ) -> Path {
     import from jac_client.plugin.src.vite_bundler { ViteBundler }
+    import platform as platform_mod;
     console.print("\n🖥️  Building desktop app (Tauri)", style="bold");
     # Check if setup has been run
     tauri_dir = project_dir / "src-tauri";
@@ -1788,7 +1789,7 @@ impl DesktopTarget.build(
         raise RuntimeError("Desktop target not set up. Run 'jac setup desktop' first.");
     }
     # Check GLIBC compatibility for Linux production builds
-    if platform.system() == "Linux" {
+    if platform_mod.system() == "Linux" {
         glibc_check = _check_glibc_compatibility();
         is_compatible = glibc_check[0];
         glibc_msg = glibc_check[2];
@@ -1807,7 +1808,7 @@ impl DesktopTarget.build(
     # Step 1: Build web bundle first using inherited WebTarget.build() via super()
     console.print("  Step 1: Building web bundle...", style="muted");
     try {
-        web_bundle_path = super.build(entry_file, project_dir, platform);
+        web_bundle_path = super.build(entry_file, project_dir, target_platform);
     } finally {
         os.environ.pop(API_BASE_URL_ENV_VAR, None);
     }
@@ -1821,7 +1822,7 @@ impl DesktopTarget.build(
     sidecar_bundled = False;
     try {
         console.print("  Step 1.5: Bundling sidecar (Jac backend)...", style="muted");
-        sidecar_path = _bundle_sidecar(entry_file, project_dir, tauri_dir, platform);
+        sidecar_path = _bundle_sidecar(entry_file, project_dir, tauri_dir, target_platform);
         if sidecar_path and sidecar_path.exists() {
             console.print(f"  ✔ Sidecar bundled: {sidecar_path}", style="success");
             sidecar_bundled = True;
@@ -1883,7 +1884,7 @@ except:
     _update_tauri_config_for_build(tauri_dir, project_dir, web_bundle_path);
     # Step 3: Run cargo tauri build
     console.print("  Step 3: Building Tauri app...", style="muted");
-    bundle_path = _run_tauri_build(tauri_dir, platform);
+    bundle_path = _run_tauri_build(tauri_dir, target_platform);
     console.success(f"Desktop app built successfully!");
     console.print(f"  Output: {bundle_path}", style="muted");
     return bundle_path;
@@ -2300,20 +2301,20 @@ def _create_appimage_from_appdir(appdir_path: Path) -> Path | None {
 }
 
 """Run cargo tauri build and return path to bundle."""
-def _run_tauri_build(tauri_dir: Path, platform: Optional[str] = None) -> Path {
-
+def _run_tauri_build(tauri_dir: Path, target_platform: Optional[str] = None) -> Path {
+    import platform as platform_mod;
     # Determine target based on platform
     target = None;
-    if platform == "windows" {
+    if target_platform == "windows" {
         target = "x86_64-pc-windows-msvc";
-    } elif platform == "macos" {
+    } elif target_platform == "macos" {
         # Try to detect architecture
-        if platform.machine() == "arm64" {
+        if platform_mod.machine() == "arm64" {
             target = "aarch64-apple-darwin";
         } else {
             target = "x86_64-apple-darwin";
         }
-    } elif platform == "linux" {
+    } elif target_platform == "linux" {
         target = "x86_64-unknown-linux-gnu";
     }
 
@@ -2394,8 +2395,7 @@ def _run_tauri_build(tauri_dir: Path, platform: Optional[str] = None) -> Path {
     ];
 
     # For Linux: if no AppImage but AppDir exists, try to create AppImage
-    is_linux_build = (platform == "linux")
-    or (not platform and target and "linux" in target);
+    is_linux_build = (target_platform == "linux") or (not target_platform and target and "linux" in target);
     if not installers and is_linux_build {
         appimage_dir = bundle_dir / "appimage";
         if appimage_dir.exists() {
@@ -2434,7 +2434,7 @@ def _bundle_sidecar(
     entry_file: Path,
     project_dir: Path,
     tauri_dir: Path,
-    platform: Optional[str] = None
+    target_platform: Optional[str] = None
 ) -> Path | None {
     import platform as platform_module;
 
@@ -2443,8 +2443,8 @@ def _bundle_sidecar(
     binaries_dir.mkdir(parents=True, exist_ok=True);
 
     # Determine platform
-    is_windows = platform == "windows" or (
-        platform is None and platform_module.system() == "Windows"
+    is_windows = target_platform == "windows" or (
+        target_platform is None and platform_module.system() == "Windows"
     );
 
     # Check if standalone bundling is requested
