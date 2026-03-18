@@ -158,10 +158,37 @@ def main():
     if args.data_path:
         data_path = Path(args.data_path).resolve()
     else:
-        # Default: ~/.local/share/jac-app/.jac (Linux)
+        # Default: ~/.local/share/jac-app (Linux)
         # This ensures we have a writable location even if base_path is read-only (e.g., AppImage)
         data_path = Path.home() / ".local" / "share" / "jac-app"
-    data_path.mkdir(parents=True, exist_ok=True)
+
+    # Try to create data path with fallbacks
+    fallback_paths = [
+        data_path,
+        Path.home() / ".jac-app",  # Fallback to home directory
+        Path("/tmp") / f"jac-app-{os.getuid()}",  # Fallback to /tmp with user id
+    ]
+
+    data_path_created = False
+    for candidate in fallback_paths:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            # Verify we can actually write to it
+            test_file = candidate / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            data_path = candidate
+            data_path_created = True
+            break
+        except (OSError, PermissionError) as e:
+            sys.stderr.write(f"[sidecar] Cannot use data path {candidate}: {e}\n")
+            continue
+
+    if not data_path_created:
+        sys.stderr.write("Error: Could not create any writable data directory\n")
+        sys.stderr.write(f"  Tried: {[str(p) for p in fallback_paths]}\n")
+        sys.exit(1)
+
     os.environ["JAC_DATA_PATH"] = str(data_path)
 
     # Change working directory to writable data path

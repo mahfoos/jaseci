@@ -42,7 +42,7 @@ def _check_command_available(
         if result.returncode == 0 {
             return (True, result.stdout.strip());
         }
-    } except Exception { }
+    } except Exception as e { }
     return (False, None);
 }
 
@@ -61,15 +61,170 @@ def _make_localhost_url(port: int) -> str {
     return f"http://127.0.0.1:{port}";
 }
 
+"""Join path components into a Path object (type-safe alternative to / operator)."""
+def _join_path(base: Path, *parts: str) -> Path {
+    result: str = str(base);
+    for part in parts {
+        p: str = str(part);
+        result = os.path.join(result, p);
+    }
+    return Path(result);
+}
+
 def _get_toml_api_base_url(project_dir: Path) -> str {
     config_loader = JacClientConfig(project_dir);
-    return config_loader.get_api_config().get('base_url', '');
+    api_config: dict = config_loader.get_api_config();
+    base_url: str = api_config.get('base_url', '');
+    return base_url;
+}
+
+# ===============================================================================
+# Production Build Helpers - GLIBC compatibility and Docker builds
+# ===============================================================================
+
+"""Get the system GLIBC version on Linux. Returns version string or None."""
+def _get_glibc_version() -> str | None {
+    if platform.system() != "Linux" {
+        return None;
+    }
+    try {
+        result = subprocess.run(
+            ["ldd", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
+        );
+        if result.returncode == 0 {
+            stdout_str: str = str(result.stdout);
+            first_line: str = stdout_str.split("\n")[0];
+            parts: list = first_line.split();
+            for p in parts {
+                part: str = str(p);
+                if "." in part {
+                    try {
+                        segments: list = part.split(".");
+                        if len(segments) >= 2 {
+                            int(str(segments[0]));
+                            int(str(segments[1]));
+                            return part;
+                        }
+                    } except Exception { }
+                }
+            }
+        }
+    } except Exception { }
+    return None;
+}
+
+"""Compare two version strings. Returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2."""
+def _compare_versions(v1: str, v2: str) -> int {
+    parts1: list = [];
+    for x in v1.split(".") {
+        try {
+            parts1.append(int(str(x)));
+        } except Exception {
+            parts1.append(0);
+        }
+    }
+    parts2: list = [];
+    for x in v2.split(".") {
+        try {
+            parts2.append(int(str(x)));
+        } except Exception {
+            parts2.append(0);
+        }
+    }
+    while len(parts1) < len(parts2) {
+        parts1.append(0);
+    }
+    while len(parts2) < len(parts1) {
+        parts2.append(0);
+    }
+    for i in range(len(parts1)) {
+        if parts1[i] < parts2[i] {
+            return -1;
+        }
+        if parts1[i] > parts2[i] {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+"""Check GLIBC compatibility for production builds. Returns (is_compatible, version, message)."""
+def _check_glibc_compatibility() -> tuple[bool, str | None, str] {
+    if platform.system() != "Linux" {
+        return (True, None, "");
+    }
+    glibc_version = _get_glibc_version();
+    if not glibc_version {
+        return (True, None, "Could not detect GLIBC version");
+    }
+    # GLIBC 2.35 is Ubuntu 22.04 - good target for compatibility
+    if _compare_versions(glibc_version, "2.35") > 0 {
+        msg = "WARNING: GLIBC " + glibc_version + " detected. For production builds targeting older systems, use Docker build or build on Ubuntu 22.04.";
+        return (False, glibc_version, msg);
+    }
+    return (True, glibc_version, "GLIBC " + glibc_version + " OK");
+}
+
+"""Check if Docker is available."""
+def _is_docker_available() -> bool {
+    result = _check_command_available(["docker", "--version"]);
+    return result[0];
+}
+
+"""Get the path to the Docker build script."""
+def _get_docker_script_path() -> Path | None {
+    try {
+        import from jac_client.plugin.src.targets.desktop { __file__ as desktop_init }
+        desktop_dir: Path = Path(desktop_init).parent;
+        docker_script: Path = Path(str(desktop_dir) + "/docker/build.sh");
+        if docker_script.exists() {
+            return docker_script;
+        }
+    } except Exception { }
+    return None;
+}
+
+"""Find the jaseci monorepo root directory by looking for jac-client."""
+def _find_jaseci_root(start_dir: Path) -> Path | None {
+    search_dir: Path = Path(str(start_dir.resolve()));
+    for _ in range(10) {
+        jac_client_path: Path = Path(str(search_dir) + "/jac-client");
+        if jac_client_path.is_dir() {
+            return search_dir;
+        }
+        parent: Path = search_dir.parent;
+        if str(parent) == str(search_dir) {
+            break;
+        }
+        search_dir = parent;
+    }
+    return None;
+}
+
+"""Print suggestion to use Docker for production builds."""
+def _suggest_docker_build(project_dir: Path) -> None {
+    docker_script = _get_docker_script_path();
+    console.print("\n[yellow]For production-ready Linux builds, use Docker:[/yellow]");
+    if docker_script {
+        console.print(f"  {docker_script} {project_dir}");
+    } else {
+        console.print("  See jac-client/jac_client/plugin/src/targets/desktop/docker/");
+    }
+    console.print("  This builds in Ubuntu 22.04 for maximum compatibility.\n");
+}
+
+"""Check if running in production build mode (via env var)."""
+def _is_production_build() -> bool {
+    return os.environ.get("JAC_PRODUCTION_BUILD", "").lower() in ("1", "true", "yes");
 }
 
 """Setup desktop target - scaffold Tauri project structure."""
 impl DesktopTarget.setup(project_dir: Path) -> None {
     # Define tauri_dir early so we can use it in error handling
-    tauri_dir = project_dir / "src-tauri";
+    tauri_dir: Path = _join_path(project_dir, "src-tauri");
     # Create src-tauri directory structure FIRST (before ANY other operations)
     # This ensures the directory exists even if later steps fail
     console.print("\n🖥️  Setting up desktop target (Tauri)", style="bold");
@@ -83,19 +238,19 @@ impl DesktopTarget.setup(project_dir: Path) -> None {
     if not project_dir.exists() {
         try {
             project_dir.mkdir(parents=True, exist_ok=True);
-        } except Exception as e {
-            raise RuntimeError(f"Failed to create project directory: {e}");
+        } except Exception {
+            raise RuntimeError(f"Failed to create project directory");
         }
     }
     # Create src-tauri directory structure IMMEDIATELY (before imports or any other operations)
     console.print("  Creating src-tauri/ directory structure...", style="muted");
     try {
         tauri_dir.mkdir(parents=True, exist_ok=True);
-        (tauri_dir / "src").mkdir(exist_ok=True);
-        (tauri_dir / "binaries").mkdir(exist_ok=True);
+        _join_path(tauri_dir, "src").mkdir(exist_ok=True);
+        _join_path(tauri_dir, "binaries").mkdir(exist_ok=True);
         console.print(f"  ✔ Created {tauri_dir}", style="success");
-    } except Exception as e {
-        raise RuntimeError(f"Failed to create src-tauri directory: {e}");
+    } except Exception {
+        raise RuntimeError(f"Failed to create src-tauri directory");
     }
     # Wrap rest of setup in try-finally to ensure directory exists even if exceptions occur
     try {
@@ -920,7 +1075,7 @@ def _check_and_install_rust() -> bool {
             console.print(f"  ✔ Rust toolchain found: {version}", style="success");
             return True;
         }
-    } except Exception { }
+    } except Exception as e { }
 
     # Rust not found
     console.warning("  Rust toolchain not found");
@@ -983,7 +1138,7 @@ def _check_and_install_rust() -> bool {
                                 );
                                 return True;
                             }
-                        } except Exception { }
+                        } except Exception as e { }
                         return True;
                     } else {
                         console.warning(
@@ -1010,7 +1165,7 @@ def _check_and_install_rust() -> bool {
                 "  Skipping Rust installation. Please install manually.", style="muted"
             );
         }
-    } except Exception {
+    } except Exception as e {
         console.print(
             "  curl not found. Cannot install Rust automatically.", style="muted"
         );
@@ -1033,7 +1188,7 @@ def _check_and_install_build_tools(system: str) -> bool {
             );
             console.print("  ✔ Build tools (gcc) found", style="success");
             return True;
-        } except Exception {
+        } except Exception as e {
             console.warning("  Build tools (gcc) not found");
             _try_install_linux_build_tools();
             return False;
@@ -1048,7 +1203,7 @@ def _check_and_install_build_tools(system: str) -> bool {
                 console.print("  ✔ Xcode Command Line Tools found", style="success");
                 return True;
             }
-        } except Exception { }
+        } except Exception as e { }
         console.warning("  Xcode Command Line Tools not found");
         console.print("  Install with: xcode-select --install", style="muted");
         console.print("\n  Would you like to open the installer?", style="info");
@@ -1060,7 +1215,7 @@ def _check_and_install_build_tools(system: str) -> bool {
                     "  ✔ Installer opened. Please complete the installation.",
                     style="success"
                 );
-            } except Exception {
+            } except Exception as e {
                 console.warning(
                     "  Failed to open installer. Please run: xcode-select --install"
                 );
@@ -1167,7 +1322,7 @@ def _detect_linux_distro() -> str | None {
                 }
             }
         }
-    } except Exception {
+    } except Exception as e {
         return None;
     }
 }
@@ -1182,7 +1337,7 @@ def _check_and_install_linux_dependencies() -> None {
         );
         console.print("  ✔ pkg-config found", style="success");
         pkg_config_ok = True;
-    } except Exception {
+    } except Exception as e {
         console.warning("  pkg-config not found");
     }
 
@@ -1198,7 +1353,7 @@ def _check_and_install_linux_dependencies() -> None {
             console.print("  ✔ GTK/WebKit libraries found", style="success");
             webkit_ok = True;
         }
-    } except Exception {
+    } except Exception as e {
         console.warning("  GTK/WebKit libraries not found");
     }
 
@@ -1378,7 +1533,7 @@ def _check_python_and_jaclang() -> None {
             python_ok = True;
             python_cmd = "python3";
         }
-    } except Exception { }
+    } except Exception as e { }
 
     # Try python command as fallback if python3 not found
     if not python_ok {
@@ -1392,7 +1547,7 @@ def _check_python_and_jaclang() -> None {
                 python_ok = True;
                 python_cmd = "python";
             }
-        } except Exception { }
+        } except Exception as e { }
     }
 
     if not python_ok {
@@ -1421,7 +1576,7 @@ def _check_python_and_jaclang() -> None {
             console.print(f"  ✔ jaclang found: {version}", style="success");
             jaclang_ok = True;
         }
-    } except Exception { }
+    } except Exception as e { }
 
     if not jaclang_ok {
         console.warning("  jaclang not found");
@@ -1477,7 +1632,7 @@ def _check_python_and_jaclang() -> None {
             console.print(f"  ✔ PyInstaller found: {version} (standalone builds available)", style="success");
             pyinstaller_ok = True;
         }
-    } except Exception { }
+    } except Exception as e { }
 
     if not pyinstaller_ok {
         console.print("  ℹ PyInstaller not found (optional)", style="muted");
@@ -1509,7 +1664,7 @@ def _check_and_install_tauri_cli() -> None {
             console.print(f"  ✔ Tauri CLI found (cargo): {version}", style="success");
             return;
         }
-    } except Exception { }
+    } except Exception as e { }
 
     # Check if bun tauri CLI is available (global install)
     bun_tauri_ok = False;
@@ -1521,7 +1676,7 @@ def _check_and_install_tauri_cli() -> None {
             console.print("  ✔ Tauri CLI found (bun)", style="success");
             return;
         }
-    } except Exception { }
+    } except Exception as e { }
 
     # Tauri CLI not found
     console.warning("  Tauri CLI not found");
@@ -1536,14 +1691,14 @@ def _check_and_install_tauri_cli() -> None {
             ["cargo", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         cargo_available = True;
-    } except Exception { }
+    } except Exception as e { }
 
     # Check if bun is available
     bun_available = False;
     try {
         subprocess.run(["bun", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT);
         bun_available = True;
-    } except Exception { }
+    } except Exception as e { }
 
     if not cargo_available and not bun_available {
         console.print(
@@ -1632,6 +1787,18 @@ impl DesktopTarget.build(
     if not tauri_dir.exists() {
         raise RuntimeError("Desktop target not set up. Run 'jac setup desktop' first.");
     }
+    # Check GLIBC compatibility for Linux production builds
+    if platform.system() == "Linux" {
+        glibc_check = _check_glibc_compatibility();
+        is_compatible = glibc_check[0];
+        glibc_msg = glibc_check[2];
+        if not is_compatible {
+            console.print(f"\n[yellow]{glibc_msg}[/yellow]");
+            _suggest_docker_build(project_dir);
+        } elif glibc_msg {
+            console.print(f"  {glibc_msg}", style="muted");
+        }
+    }
     # Bake TOML base_url into the bundle; otherwise sidecar discovers port at runtime.
     toml_base_url = _get_toml_api_base_url(project_dir);
     if toml_base_url {
@@ -1702,7 +1869,7 @@ except:
                 }
                 _generate_default_icons(tauri_dir);
             }
-        } except Exception {
+        } except Exception as e {
             # If check fails, try to regenerate anyway
             console.warning("  Could not verify icon, regenerating...");
             _generate_default_icons(tauri_dir);
@@ -2168,7 +2335,7 @@ def _run_tauri_build(tauri_dir: Path, platform: Optional[str] = None) -> Path {
                     use_bun = True;
                 }
             }
-        } except Exception {
+        } except Exception as e {
             console.warning("  Failed to check package.json for tauri scripts");
         }
     }
@@ -2728,7 +2895,7 @@ impl DesktopTarget.dev(
             try {
                 vite_process.terminate();
                 vite_process.wait(timeout=SUBPROCESS_TIMEOUT_SHORT);
-            } except Exception {
+            } except Exception as e {
                 vite_process.kill();
             }
         }
@@ -2736,7 +2903,7 @@ impl DesktopTarget.dev(
             try {
                 server_process.terminate();
                 server_process.wait(timeout=SUBPROCESS_TIMEOUT_SHORT);
-            } except Exception {
+            } except Exception as e {
                 server_process.kill();
             }
         }
@@ -2884,7 +3051,7 @@ def _run_tauri_dev(tauri_dir: Path) -> subprocess.Popen {
                     use_bun = True;
                 }
             }
-        } except Exception { }
+        } except Exception as e { }
     }
 
     if use_bun {
@@ -3007,7 +3174,7 @@ impl DesktopTarget.start(
             try {
                 tauri_process.terminate();
                 tauri_process.wait(timeout=SUBPROCESS_TIMEOUT_SHORT);
-            } except Exception {
+            } except Exception as e {
                 tauri_process.kill();
             }
         }
@@ -3015,7 +3182,7 @@ impl DesktopTarget.start(
             try {
                 server_process.terminate();
                 server_process.wait(timeout=SUBPROCESS_TIMEOUT_SHORT);
-            } except Exception {
+            } except Exception as e {
                 server_process.kill();
             }
         }
@@ -3041,7 +3208,7 @@ impl DesktopTarget.start(
         if return_code != 0 {
             console.warning(f"  Tauri process exited with code {return_code}");
         }
-    } except KeyboardInterrupt {
+    } except KeyboardInterrupt as e {
         console.print(
             "\n  Keyboard interrupt detected. Stopping app...", style="muted"
         );
