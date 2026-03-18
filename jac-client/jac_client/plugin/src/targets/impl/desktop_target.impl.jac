@@ -204,6 +204,60 @@ def _find_jaseci_root(start_dir: Path) -> Path | None {
     return None;
 }
 
+"""Run the Docker-based production build."""
+def _run_docker_build(project_dir: Path) -> Path | None {
+    docker_script = _get_docker_script_path();
+    if not docker_script {
+        console.error("Docker build script not found");
+        return None;
+    }
+    if not _is_docker_available() {
+        console.error("Docker is not available. Please install Docker first.");
+        return None;
+    }
+    console.print("\n🐳 Running Docker production build...", style="bold");
+    console.print(f"  Script: {docker_script}", style="muted");
+    console.print(f"  Project: {project_dir}", style="muted");
+    try {
+        result = subprocess.run(
+            ["bash", str(docker_script), str(project_dir)],
+            cwd=str(project_dir),
+            timeout=1800
+        );
+        if result.returncode == 0 {
+            bundle_dir: Path = Path(str(project_dir) + "/src-tauri/target/release/bundle");
+            appimage_dir: Path = Path(str(bundle_dir) + "/appimage");
+            deb_dir: Path = Path(str(bundle_dir) + "/deb");
+            if appimage_dir.exists() {
+                for f in appimage_dir.iterdir() {
+                    fname: str = str(f.name);
+                    if fname.endswith(".AppImage") {
+                        return f;
+                    }
+                }
+            }
+            if deb_dir.exists() {
+                for f in deb_dir.iterdir() {
+                    fname: str = str(f.name);
+                    if fname.endswith(".deb") {
+                        return f;
+                    }
+                }
+            }
+            return bundle_dir;
+        } else {
+            console.error(f"Docker build failed with exit code {result.returncode}");
+            return None;
+        }
+    } except subprocess.TimeoutExpired {
+        console.error("Docker build timed out after 30 minutes");
+        return None;
+    } except Exception as e {
+        console.error(f"Docker build error: {e}");
+        return None;
+    }
+}
+
 """Print suggestion to use Docker for production builds."""
 def _suggest_docker_build(project_dir: Path) -> None {
     docker_script = _get_docker_script_path();
@@ -2631,6 +2685,13 @@ hiddenimports = [
     'pluggy',
     'toml',
     'tomli',
+    # Python stdlib modules that jaclang uses
+    'pdb',
+    'bdb',
+    'cmd',
+    'code',
+    'codeop',
+    'readline',
 ]
 
 # Try to add jac-scale if installed (includes FastAPI/uvicorn dependencies)
