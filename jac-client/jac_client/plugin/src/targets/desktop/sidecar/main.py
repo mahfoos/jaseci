@@ -21,14 +21,16 @@ Options:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import signal
 import socket
 import sys
 from pathlib import Path
+from types import FrameType
 
 
-def _signal_handler(signum, frame):
+def _signal_handler(signum: int, frame: FrameType | None) -> None:
     """Handle signals and log them to stderr."""
     sig_name = (
         signal.Signals(signum).name if hasattr(signal, "Signals") else str(signum)
@@ -40,10 +42,8 @@ def _signal_handler(signum, frame):
 
 # Register signal handlers early
 for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-    try:
+    with contextlib.suppress(OSError, ValueError):
         signal.signal(sig, _signal_handler)
-    except (OSError, ValueError):
-        pass  # Some signals can't be caught
 
 
 # Set JAC_USE_STDERR before any jaclang imports.

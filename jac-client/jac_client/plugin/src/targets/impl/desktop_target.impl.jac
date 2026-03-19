@@ -31,11 +31,9 @@ glob DEFAULT_API_PORT: int = 8000,
 # ===============================================================================
 # Helper Functions - Extracted to reduce duplication
 # ===============================================================================
-
 """Check if a command is available and optionally return its version."""
 def _check_command_available(
-    cmd: list[str],
-    timeout: int = SUBPROCESS_TIMEOUT_SHORT
+    cmd: list[str], timeout: int = SUBPROCESS_TIMEOUT_SHORT
 ) -> tuple[bool, str | None] {
     try {
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout);
@@ -53,7 +51,7 @@ def _is_fuse_error(error_output: str) -> bool {
 }
 
 """Get FUSE installation instructions."""
-def _get_fuse_install_hint() -> str {
+def _get_fuse_install_hint -> str {
     return "Install FUSE with: sudo apt-get install -y libfuse2";
 }
 
@@ -81,9 +79,8 @@ def _get_toml_api_base_url(project_dir: Path) -> str {
 # ===============================================================================
 # Production Build Helpers - GLIBC compatibility and Docker builds
 # ===============================================================================
-
 """Get the system GLIBC version on Linux. Returns version string or None."""
-def _get_glibc_version() -> str | None {
+def _get_glibc_version -> str | None {
     if platform.system() != "Linux" {
         return None;
     }
@@ -152,7 +149,7 @@ def _compare_versions(v1: str, v2: str) -> int {
 }
 
 """Check GLIBC compatibility for production builds. Returns (is_compatible, version, message)."""
-def _check_glibc_compatibility() -> tuple[bool, str | None, str] {
+def _check_glibc_compatibility -> tuple[bool, str | None, str] {
     if platform.system() != "Linux" {
         return (True, None, "");
     }
@@ -169,13 +166,13 @@ def _check_glibc_compatibility() -> tuple[bool, str | None, str] {
 }
 
 """Check if Docker is available."""
-def _is_docker_available() -> bool {
+def _is_docker_available -> bool {
     result = _check_command_available(["docker", "--version"]);
     return result[0];
 }
 
 """Get the path to the Docker build script."""
-def _get_docker_script_path() -> Path | None {
+def _get_docker_script_path -> Path | None {
     try {
         import from jac_client.plugin.src.targets.desktop { __file__ as desktop_init }
         desktop_dir: Path = Path(desktop_init).parent;
@@ -225,7 +222,9 @@ def _run_docker_build(project_dir: Path) -> Path | None {
             timeout=1800
         );
         if result.returncode == 0 {
-            bundle_dir: Path = Path(str(project_dir) + "/src-tauri/target/release/bundle");
+            bundle_dir: Path = Path(
+                str(project_dir) + "/src-tauri/target/release/bundle"
+            );
             appimage_dir: Path = Path(str(bundle_dir) + "/appimage");
             deb_dir: Path = Path(str(bundle_dir) + "/deb");
             if appimage_dir.exists() {
@@ -271,7 +270,7 @@ def _suggest_docker_build(project_dir: Path) -> None {
 }
 
 """Check if running in production build mode (via env var)."""
-def _is_production_build() -> bool {
+def _is_production_build -> bool {
     return os.environ.get("JAC_PRODUCTION_BUILD", "").lower() in ("1", "true", "yes");
 }
 
@@ -1077,7 +1076,7 @@ notifications = false
 }
 
 """Check and install all required dependencies for desktop target."""
-def _check_and_install_dependencies() -> None {
+def _check_and_install_dependencies -> None {
     import platform as platform_module;
     import sys;
 
@@ -1119,10 +1118,13 @@ def _check_and_install_dependencies() -> None {
 }
 
 """Check if Rust toolchain is installed, and offer to install if missing."""
-def _check_and_install_rust() -> bool {
+def _check_and_install_rust -> bool {
     try {
         result = subprocess.run(
-            ["rustc", "--version"], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["rustc", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         if result.returncode == 0 {
             version = result.stdout.strip();
@@ -1238,7 +1240,10 @@ def _check_and_install_build_tools(system: str) -> bool {
         # Check for gcc/cc
         try {
             subprocess.run(
-                ["gcc", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+                ["gcc", "--version"],
+                capture_output=True,
+                check=True,
+                timeout=SUBPROCESS_TIMEOUT_SHORT
             );
             console.print("  ✔ Build tools (gcc) found", style="success");
             return True;
@@ -1251,7 +1256,10 @@ def _check_and_install_build_tools(system: str) -> bool {
         # Check for Xcode Command Line Tools
         try {
             result = subprocess.run(
-                ["xcode-select", "-p"], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+                ["xcode-select", "-p"],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT_SHORT
             );
             if result.returncode == 0 {
                 console.print("  ✔ Xcode Command Line Tools found", style="success");
@@ -1292,7 +1300,7 @@ def _check_and_install_build_tools(system: str) -> bool {
 }
 
 """Try to install Linux build tools."""
-def _try_install_linux_build_tools() -> None {
+def _try_install_linux_build_tools -> None {
     # Detect Linux distribution
     distro = _detect_linux_distro();
 
@@ -1314,7 +1322,9 @@ def _try_install_linux_build_tools() -> None {
             if distro in ("ubuntu", "debian") {
                 console.print("  Installing build-essential...", style="muted");
                 result = subprocess.run(
-                    ["sudo", "apt-get", "update"], check=False, timeout=SUBPROCESS_TIMEOUT_MEDIUM
+                    ["sudo", "apt-get", "update"],
+                    check=False,
+                    timeout=SUBPROCESS_TIMEOUT_MEDIUM
                 );
                 if result.returncode == 0 {
                     result = subprocess.run(
@@ -1358,7 +1368,7 @@ def _try_install_linux_build_tools() -> None {
 }
 
 """Detect Linux distribution."""
-def _detect_linux_distro() -> str | None {
+def _detect_linux_distro -> str | None {
     try {
         # Check /etc/os-release
         if os.path.exists("/etc/os-release") {
@@ -1382,12 +1392,15 @@ def _detect_linux_distro() -> str | None {
 }
 
 """Check and install Linux system dependencies."""
-def _check_and_install_linux_dependencies() -> None {
+def _check_and_install_linux_dependencies -> None {
     # Check pkg-config
     pkg_config_ok = False;
     try {
         subprocess.run(
-            ["pkg-config", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["pkg-config", "--version"],
+            capture_output=True,
+            check=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         console.print("  ✔ pkg-config found", style="success");
         pkg_config_ok = True;
@@ -1453,7 +1466,9 @@ def _try_install_linux_system_deps(distro: str) -> None {
             ];
             console.print("  Installing dependencies...", style="muted");
             result = subprocess.run(
-                ["sudo", "apt-get", "update"], check=False, timeout=SUBPROCESS_TIMEOUT_MEDIUM
+                ["sudo", "apt-get", "update"],
+                check=False,
+                timeout=SUBPROCESS_TIMEOUT_MEDIUM
             );
             if result.returncode == 0 {
                 result = subprocess.run(
@@ -1477,7 +1492,9 @@ def _try_install_linux_system_deps(distro: str) -> None {
             ];
             console.print("  Installing dependencies...", style="muted");
             result = subprocess.run(
-                ["sudo", "dnf", "install", "-y"] + deps, check=False, timeout=SUBPROCESS_TIMEOUT_BUILD
+                ["sudo", "dnf", "install", "-y"] + deps,
+                check=False,
+                timeout=SUBPROCESS_TIMEOUT_BUILD
             );
             if result.returncode == 0 {
                 console.print("  ✔ Dependencies installed", style="success");
@@ -1550,7 +1567,7 @@ def _print_manual_install_instructions(distro: str | None) -> None {
 }
 
 """Check macOS dependencies."""
-def _check_macos_dependencies() -> None {
+def _check_macos_dependencies -> None {
     # macOS dependencies are typically handled by Xcode Command Line Tools
     # which is checked in _check_and_install_build_tools
     console.print(
@@ -1559,7 +1576,7 @@ def _check_macos_dependencies() -> None {
 }
 
 """Check Windows dependencies."""
-def _check_windows_dependencies() -> None {
+def _check_windows_dependencies -> None {
     console.warning("  Windows dependencies check not fully implemented");
     console.print(
         "  Please ensure Visual Studio Build Tools are installed:", style="muted"
@@ -1571,7 +1588,7 @@ def _check_windows_dependencies() -> None {
 }
 
 """Check Python and jaclang (required for sidecar functionality)."""
-def _check_python_and_jaclang() -> None {
+def _check_python_and_jaclang -> None {
     # Check Python - try python3 first, then python
     python_ok = False;
     python_cmd = None;
@@ -1579,7 +1596,10 @@ def _check_python_and_jaclang() -> None {
 
     try {
         result = subprocess.run(
-            ["python3", "--version"], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["python3", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         if result.returncode == 0 {
             python_version = result.stdout.strip();
@@ -1593,7 +1613,10 @@ def _check_python_and_jaclang() -> None {
     if not python_ok {
         try {
             result = subprocess.run(
-                ["python", "--version"], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+                ["python", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT_SHORT
             );
             if result.returncode == 0 {
                 python_version = result.stdout.strip();
@@ -1683,35 +1706,37 @@ def _check_python_and_jaclang() -> None {
         );
         if result.returncode == 0 {
             version = result.stdout.strip();
-            console.print(f"  ✔ PyInstaller found: {version} (standalone builds available)", style="success");
+            console.print(
+                f"  ✔ PyInstaller found: {version} (standalone builds available)",
+                style="success"
+            );
             pyinstaller_ok = True;
         }
     } except Exception as e { }
 
     if not pyinstaller_ok {
-        console.print("  ℹ PyInstaller not found (optional)", style="muted");
         console.print(
-            "  For standalone builds without Python dependency:",
-            style="muted"
+            "  ⚠ PyInstaller not found - required for standalone builds",
+            style="warning"
         );
+        console.print("  Install with: pip install pyinstaller", style="muted");
         console.print(
-            "    pip install pyinstaller",
-            style="muted"
-        );
-        console.print(
-            "    JAC_SIDECAR_STANDALONE=1 jac build desktop",
+            "  Without PyInstaller, builds will fall back to wrapper mode (requires Python on user machine)",
             style="muted"
         );
     }
 }
 
 """Check and install Tauri CLI if needed."""
-def _check_and_install_tauri_cli() -> None {
+def _check_and_install_tauri_cli -> None {
     # Check if cargo tauri is available (preferred method)
     cargo_tauri_ok = False;
     try {
         result = subprocess.run(
-            ["cargo", "tauri", "--version"], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["cargo", "tauri", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         if result.returncode == 0 {
             version = result.stdout.strip();
@@ -1724,7 +1749,10 @@ def _check_and_install_tauri_cli() -> None {
     bun_tauri_ok = False;
     try {
         result = subprocess.run(
-            ["bun", "pm", "ls", "-g"], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["bun", "pm", "ls", "-g"],
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         if result.returncode == 0 and "@tauri-apps/cli" in result.stdout {
             console.print("  ✔ Tauri CLI found (bun)", style="success");
@@ -1742,7 +1770,10 @@ def _check_and_install_tauri_cli() -> None {
     cargo_available = False;
     try {
         subprocess.run(
-            ["cargo", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["cargo", "--version"],
+            capture_output=True,
+            check=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
         cargo_available = True;
     } except Exception as e { }
@@ -1750,7 +1781,12 @@ def _check_and_install_tauri_cli() -> None {
     # Check if bun is available
     bun_available = False;
     try {
-        subprocess.run(["bun", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT);
+        subprocess.run(
+            ["bun", "--version"],
+            capture_output=True,
+            check=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
+        );
         bun_available = True;
     } except Exception as e { }
 
@@ -1832,7 +1868,7 @@ def _check_and_install_tauri_cli() -> None {
 Uses super().build() to get the web bundle, then adds sidecar and Tauri wrapping.
 """
 impl DesktopTarget.build(
-    entry_file: Path, project_dir: Path, target_platform: Optional[str] = None
+    entry_file: Path, project_dir: Path, platform: Optional[str] = None
 ) -> Path {
     import from jac_client.plugin.src.vite_bundler { ViteBundler }
     import platform as platform_mod;
@@ -1876,7 +1912,9 @@ impl DesktopTarget.build(
     sidecar_bundled = False;
     try {
         console.print("  Step 1.5: Bundling sidecar (Jac backend)...", style="muted");
-        sidecar_path = _bundle_sidecar(entry_file, project_dir, tauri_dir, target_platform);
+        sidecar_path = _bundle_sidecar(
+            entry_file, project_dir, tauri_dir, target_platform
+        );
         if sidecar_path and sidecar_path.exists() {
             console.print(f"  ✔ Sidecar bundled: {sidecar_path}", style="success");
             sidecar_bundled = True;
@@ -2035,7 +2073,9 @@ def _bundle_jac_sources(project_dir: Path, tauri_dir: Path, config: dict) -> Non
         shutil.copy2(jac_file, dest);
     }
 
-    console.print(f"  ✔ Bundled {len(jac_files)} .jac file(s) for desktop", style="success");
+    console.print(
+        f"  ✔ Bundled {len(jac_files)} .jac file(s) for desktop", style="success"
+    );
 
     # Copy jac.toml to the jac directory (required for config discovery in bundled app)
     jac_toml = project_dir / "jac.toml";
@@ -2215,7 +2255,7 @@ def _update_tauri_config_for_build(
 }
 
 """Check if appimagetool is available and can run."""
-def _check_appimagetool() -> tuple[bool, str | None] {
+def _check_appimagetool -> tuple[bool, str | None] {
     # First check if the command exists
     (exists, _) = _check_command_available(["which", "appimagetool"], timeout=2);
     if not exists {
@@ -2317,7 +2357,9 @@ def _create_appimage_from_appdir(appdir_path: Path) -> Path | None {
         if result.returncode != 0 {
             error_output = result.stderr or result.stdout or "Unknown error";
             if _is_fuse_error(error_output) {
-                console.warning("  Failed to create AppImage: FUSE library not available");
+                console.warning(
+                    "  Failed to create AppImage: FUSE library not available"
+                );
                 console.print(f"  {_get_fuse_install_hint()}", style="muted");
                 console.print(
                     "  For WSL2, you may also need: sudo apt-get install -y fuse",
@@ -2449,7 +2491,8 @@ def _run_tauri_build(tauri_dir: Path, target_platform: Optional[str] = None) -> 
     ];
 
     # For Linux: if no AppImage but AppDir exists, try to create AppImage
-    is_linux_build = (target_platform == "linux") or (not target_platform and target and "linux" in target);
+    is_linux_build = (target_platform == "linux")
+    or (not target_platform and target and "linux" in target);
     if not installers and is_linux_build {
         appimage_dir = bundle_dir / "appimage";
         if appimage_dir.exists() {
@@ -2477,12 +2520,12 @@ def _run_tauri_build(tauri_dir: Path, target_platform: Optional[str] = None) -> 
     return bundle_dir;
 }
 
-"""Bundle sidecar using PyInstaller for standalone distribution.
+"""Bundle sidecar for desktop distribution.
 
-If PyInstaller is available, creates a standalone binary with Python + jaclang bundled.
-Otherwise, falls back to wrapper script that requires system Python.
+By default, uses PyInstaller to create a standalone binary with Python + jaclang bundled.
+If PyInstaller fails or is unavailable, falls back to wrapper script that requires system Python.
 
-Set JAC_SIDECAR_STANDALONE=1 to force PyInstaller bundling.
+Set JAC_SIDECAR_STANDALONE=0 to skip PyInstaller and use wrapper script.
 """
 def _bundle_sidecar(
     entry_file: Path,
@@ -2497,12 +2540,12 @@ def _bundle_sidecar(
     binaries_dir.mkdir(parents=True, exist_ok=True);
 
     # Determine platform
-    is_windows = target_platform == "windows" or (
-        target_platform is None and platform_module.system() == "Windows"
-    );
+    is_windows = target_platform == "windows"
+    or (target_platform is None and platform_module.system() == "Windows");
 
-    # Check if standalone bundling is requested
-    use_pyinstaller = os.environ.get("JAC_SIDECAR_STANDALONE", "0") == "1";
+    # Use PyInstaller by default for standalone distribution (no Python required on user machine)
+    # Set JAC_SIDECAR_STANDALONE=0 to use wrapper script instead (requires Python + jaclang)
+    use_pyinstaller = os.environ.get("JAC_SIDECAR_STANDALONE", "1") != "0";
 
     if use_pyinstaller {
         result = _bundle_sidecar_pyinstaller(
@@ -2538,7 +2581,9 @@ def _bundle_sidecar_pyinstaller(
             timeout=10
         );
         if result.returncode != 0 {
-            console.warning("PyInstaller not installed. Install with: pip install pyinstaller");
+            console.warning(
+                "PyInstaller not installed. Install with: pip install pyinstaller"
+            );
             return None;
         }
         pyinstaller_version = result.stdout.strip();
@@ -2554,14 +2599,16 @@ def _bundle_sidecar_pyinstaller(
     # Create entry script for PyInstaller (can't use -m syntax in spec)
     entry_script = tauri_dir / "sidecar_entry.py";
     with open(entry_script, "w") as f {
-        f.write('''#!/usr/bin/env python3
+        f.write(
+            '''#!/usr/bin/env python3
 # Entry point for PyInstaller-bundled sidecar
 # Plugin registration for frozen apps is handled in sidecar/main.py
 
 from jac_client.plugin.src.targets.desktop.sidecar.main import main
 if __name__ == "__main__":
     main()
-''');
+'''
+        );
     }
 
     # Create PyInstaller spec file
@@ -2573,18 +2620,24 @@ if __name__ == "__main__":
     console.print(f"  Generated PyInstaller spec: {spec_path.name}", style="muted");
 
     # Run PyInstaller
-    console.print("  Bundling sidecar with PyInstaller (this may take a while)...", style="muted");
+    console.print(
+        "  Bundling sidecar with PyInstaller (this may take a while)...", style="muted"
+    );
     dist_dir = tauri_dir / "dist";
     build_dir = tauri_dir / "build";
 
     try {
         result = subprocess.run(
             [
-                sys.executable, "-m", "PyInstaller",
+                sys.executable,
+                "-m",
+                "PyInstaller",
                 "--clean",
                 "--noconfirm",
-                "--distpath", str(dist_dir),
-                "--workpath", str(build_dir),
+                "--distpath",
+                str(dist_dir),
+                "--workpath",
+                str(build_dir),
                 str(spec_path)
             ],
             capture_output=True,
@@ -2631,10 +2684,13 @@ if __name__ == "__main__":
             shutil.rmtree(build_dir);
         }
 
-        console.print(f"  ✔ Bundled standalone sidecar: {output_path.name}", style="success");
-        console.print(f"  Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB", style="muted");
+        console.print(
+            f"  ✔ Bundled standalone sidecar: {output_path.name}", style="success"
+        );
+        console.print(
+            f"  Size: {output_path.stat().st_size / 1024 / 1024:.1f} MB", style="muted"
+        );
         return output_path;
-
     } except subprocess.TimeoutExpired {
         console.warning("PyInstaller timed out after 10 minutes");
         return None;
@@ -2645,9 +2701,10 @@ if __name__ == "__main__":
 }
 
 """Generate PyInstaller spec file for sidecar bundling."""
-def _generate_pyinstaller_spec(entry_script: Path, project_dir: Path, binary_name: str) -> str {
+def _generate_pyinstaller_spec(
+    entry_script: Path, project_dir: Path, binary_name: str
+) -> str {
     # entry_script is the actual Python file to bundle (sidecar_entry.py)
-
     return f'''# -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec for Jac Sidecar
 # Auto-generated by jac-client desktop build
@@ -2808,7 +2865,9 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='{binary_name.replace(".exe", "")}',
+    name='{binary_name.replace(
+        ".exe", ""
+    )}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -2859,9 +2918,15 @@ exec python3 -m jac_client.plugin.src.targets.desktop.sidecar.main "$@"
     }
 
     console.print(f"  ✔ Created sidecar wrapper: {script_name}", style="success");
-    console.print(f"  Note: Requires Python and jaclang to be installed", style="muted");
+    console.print(
+        f"  Note: Wrapper mode - requires Python and jaclang on user machine",
+        style="muted"
+    );
     console.print(f"  Run: pip install jaclang jac-scale", style="muted");
-    console.print(f"  For standalone build: JAC_SIDECAR_STANDALONE=1 jac build desktop", style="muted");
+    console.print(
+        f"  This is fallback mode. For standalone build, ensure PyInstaller succeeds.",
+        style="muted"
+    );
 
     return output_path;
 }
@@ -3051,7 +3116,10 @@ def _run_tauri_dev(tauri_dir: Path) -> subprocess.Popen {
     # Check if cargo is available
     try {
         subprocess.run(
-            ["cargo", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["cargo", "--version"],
+            capture_output=True,
+            check=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
     } except (
         subprocess.CalledProcessError,
@@ -3066,7 +3134,12 @@ def _run_tauri_dev(tauri_dir: Path) -> subprocess.Popen {
 
     # Check if build tools (gcc/cc) are available
     try {
-        subprocess.run(["cc", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT);
+        subprocess.run(
+            ["cc", "--version"],
+            capture_output=True,
+            check=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
+        );
     } except (
         subprocess.CalledProcessError,
         FileNotFoundError,
@@ -3083,7 +3156,10 @@ def _run_tauri_dev(tauri_dir: Path) -> subprocess.Popen {
     # Check if tauri CLI is available via cargo
     try {
         subprocess.run(
-            ["cargo", "tauri", "--version"], capture_output=True, check=True, timeout=SUBPROCESS_TIMEOUT_SHORT
+            ["cargo", "tauri", "--version"],
+            capture_output=True,
+            check=True,
+            timeout=SUBPROCESS_TIMEOUT_SHORT
         );
     } except (
         subprocess.CalledProcessError,

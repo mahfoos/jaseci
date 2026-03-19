@@ -6,7 +6,7 @@ impl UserManager.postinit -> None {
     import sqlite3;
     # Check for data path override (JAC_DATA_PATH env var for read-only deployments like AppImage)
     data_path_override = os.environ.get('JAC_DATA_PATH');
-    effective_data_path = data_path_override if data_path_override else self.base_path;
+    effective_data_path = data_path_override or self.base_path;
     data_dir = os.path.join(effective_data_path, ".jac", "data");
     os.makedirs(data_dir, exist_ok=True);
     self._db_path = os.path.join(data_dir, "main.db");

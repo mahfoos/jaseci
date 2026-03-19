@@ -312,7 +312,9 @@ impl ViteBundler._format_define_entries(
     # Only add API base URL if explicitly set - skip for desktop builds where
     # Tauri injects it at runtime via initialization_script
     if api_base_url {
-        entries.append("    '" + JAC_API_BASE_URL_KEY + "': " + _to_js_expr(api_base_url));
+        entries.append(
+            "    '" + JAC_API_BASE_URL_KEY + "': " + _to_js_expr(api_base_url)
+        );
     }
     for (key, value) in custom_defines.items() {
         entries.append("    '" + key + "': " + _to_js_expr(value));
