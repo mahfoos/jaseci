@@ -1267,6 +1267,7 @@ jac build --client desktop --docker
 | Multiple formats | `.deb` (Debian/Ubuntu), `.rpm` (Fedora/RHEL), `.AppImage` (universal) |
 
 **Output location:**
+
 ```
 src-tauri/target/release/bundle/
 ├── appimage/
@@ -1278,6 +1279,7 @@ src-tauri/target/release/bundle/
 ```
 
 **Requirements:**
+
 - Docker installed and running
 - ~5GB disk space for build
 
