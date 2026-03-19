@@ -455,7 +455,9 @@ impl DesktopTarget.setup(project_dir: Path) -> None {
         console.print("  2. Build: jac build main.jac --client desktop");
         console.print("\nBuild options:", style="bold");
         console.print("  --platform <windows|macos|linux|all>  Target platform");
-        console.print("  --docker                              Production build (Linux, GLIBC compatible)");
+        console.print(
+            "  --docker                              Production build (Linux, GLIBC compatible)"
+        );
     } finally {
         # ABSOLUTE GUARANTEE: Ensure src-tauri directory exists no matter what
         if not tauri_dir.exists() {
@@ -1915,9 +1917,7 @@ impl DesktopTarget.build(
     sidecar_bundled = False;
     try {
         console.print("  Step 1.5: Bundling sidecar (Jac backend)...", style="muted");
-        sidecar_path = _bundle_sidecar(
-            entry_file, project_dir, tauri_dir, platform
-        );
+        sidecar_path = _bundle_sidecar(entry_file, project_dir, tauri_dir, platform);
         if sidecar_path and sidecar_path.exists() {
             console.print(f"  ✔ Sidecar bundled: {sidecar_path}", style="success");
             sidecar_bundled = True;
