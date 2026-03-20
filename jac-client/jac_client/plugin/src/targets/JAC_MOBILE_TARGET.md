@@ -19,6 +19,7 @@ ClientTarget (abstract base)
 ```
 
 `MobileTarget` inherits all web bundling capabilities from `WebTarget` and adds:
+
 - Expo/React Native project scaffolding
 - WebView wrapper generation
 - Bundle-to-HTML conversion for offline loading

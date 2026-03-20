@@ -45,6 +45,7 @@ EAS handles both via cloud services. A self-hosted approach replaces each indepe
 ### Local Build Commands
 
 **Android (any OS):**
+
 ```bash
 # One-time: Generate native project
 cd mobile
@@ -61,6 +62,7 @@ cd android && ./gradlew bundleRelease
 ```
 
 **iOS (macOS only):**
+
 ```bash
 # One-time: Generate native project
 cd mobile
@@ -199,12 +201,14 @@ curl -X POST "$SERVER_URL/upload" \
 ### Code Signing
 
 The server uses RSA-SHA256 code signing:
+
 - Server generates a self-signed certificate (private key stays on server)
 - Public certificate (`certificate.pem`) is embedded in the mobile app
 - Manifests are signed before delivery; the app verifies signatures
 - Certificate must be generated via the web dashboard's SERVER CONFIGURATION section
 
 App configuration for code signing:
+
 ```json
 {
   "updates": {
@@ -307,23 +311,27 @@ App configuration for code signing:
 ## 5. Integration Plan for jac-client
 
 ### Phase 1: Local Build Support
+
 - Add `jac build --client mobile --local` flag to skip EAS and use Gradle/Xcode directly
 - Run `npx expo prebuild` to generate native projects
 - Execute Gradle (Android) or Xcode (iOS) build commands locally
 - Output signed APK/AAB/IPA
 
 ### Phase 2: OTA Update Server Integration
+
 - Add `[mobile.updates]` section to `jac.toml` configuration
 - Add `jac publish --client mobile` CLI command
 - Implement the export -> zip -> upload workflow
 - Generate Docker Compose for the self-hosted update server via `jac setup update-server`
 
 ### Phase 3: Code Signing & Security
+
 - Integrate certificate generation/download into `jac setup mobile`
 - Auto-configure `app.json` with code signing settings
 - Manage upload keys securely (`.env` or `jac.toml`)
 
 ### Phase 4: Store Submission
+
 - Add `jac submit --client mobile --platform android` command
 - Integrate Fastlane for automated Play Store / App Store submission
 - Support both manual and CI-driven submission workflows
