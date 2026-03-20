@@ -13,10 +13,8 @@ import from kubernetes.client.exceptions { ApiException }
 
 """Deploys and destroys a Prometheus + Grafana monitoring stack scoped to an app namespace.
 
-Prometheus is always exposed as ClusterIP (internal scraped by Grafana).
-Grafana is exposed as:
-  - NodePort      (non-AWS): accessible via <node-ip>:<grafana_node_port>
-  - LoadBalancer  (AWS):     its own NLB, accessible at <grafana-nlb-url> (port 80)
+Prometheus is always exposed as ClusterIP (internal, scraped by Grafana).
+Grafana is exposed as ClusterIP, routed via NGINX Ingress at /grafana.
 
 Admin credentials for Grafana use the 'prometheus_admin_password' config value.
 
@@ -96,7 +94,32 @@ obj MonitoringDeployer {
                     namespace=namespace, body=prometheus_configmap
                 );
             } else {
-                raise ;
+                raise;
+            }
+        }
+
+        prometheus_sa_name = f"{prometheus_name}-sa";
+        prometheus_sa = {
+            'apiVersion': 'v1',
+            'kind': 'ServiceAccount',
+            'metadata': {
+                'name': prometheus_sa_name,
+                'namespace': namespace,
+                'labels': {'app': prometheus_name, 'managed': 'jac-scale'}
+            },
+            'automountServiceAccountToken': False
+        };
+        try {
+            core_v1.read_namespaced_service_account(
+                name=prometheus_sa_name, namespace=namespace
+            );
+        } except ApiException as e {
+            if e.status == 404 {
+                core_v1.create_namespaced_service_account(
+                    namespace=namespace, body=prometheus_sa
+                );
+            } else {
+                raise;
             }
         }
 
@@ -119,10 +142,22 @@ obj MonitoringDeployer {
                         'annotations': {'checksum/config': config_hash}
                     },
                     'spec': {
+                        'automountServiceAccountToken': False,
+                        'serviceAccountName': prometheus_sa_name,
+                        'securityContext': {
+                            'seccompProfile': {'type': 'RuntimeDefault'}
+                        },
                         'containers': [
                             {
                                 'name': 'prometheus',
                                 'image': 'prom/prometheus:latest',
+                                'securityContext': {
+                                    'runAsNonRoot': True,
+                                    'runAsUser': 65534,
+                                    'readOnlyRootFilesystem': True,
+                                    'allowPrivilegeEscalation': False,
+                                    'capabilities': {'drop': ['ALL']}
+                                },
                                 'args': [
                                     '--config.file=/etc/prometheus/prometheus.yml',
                                     '--storage.tsdb.path=/prometheus',
@@ -136,7 +171,12 @@ obj MonitoringDeployer {
                                     {
                                         'name': 'prometheus-config-vol',
                                         'mountPath': '/etc/prometheus'
-                                    }
+                                    },
+                                    {
+                                        'name': 'prometheus-data',
+                                        'mountPath': '/prometheus'
+                                    },
+                                    {'name': 'tmp', 'mountPath': '/tmp'}
                                 ]
                             }
                         ],
@@ -144,7 +184,9 @@ obj MonitoringDeployer {
                             {
                                 'name': 'prometheus-config-vol',
                                 'configMap': {'name': f"{prometheus_name}-config"}
-                            }
+                            },
+                            {'name': 'prometheus-data', 'emptyDir': {}},
+                            {'name': 'tmp', 'emptyDir': {}}
                         ]
                     }
                 }
@@ -162,7 +204,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=prometheus_deployment
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -191,7 +233,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=prometheus_service
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -223,7 +265,7 @@ obj MonitoringDeployer {
             'metadata': {
                 'name': ksm_sa_name,
                 'namespace': namespace,
-                'labels': {'app': ksm_name}
+                'labels': {'app': ksm_name, 'managed': 'jac-scale'}
             }
         };
         try {
@@ -236,7 +278,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=sa_body
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -244,7 +286,10 @@ obj MonitoringDeployer {
         cluster_role_body = {
             'apiVersion': 'rbac.authorization.k8s.io/v1',
             'kind': 'ClusterRole',
-            'metadata': {'name': cluster_role_name, 'labels': {'app': ksm_name}},
+            'metadata': {
+                'name': cluster_role_name,
+                'labels': {'app': ksm_name, 'managed': 'jac-scale'}
+            },
             'rules': [
                 {
                     'apiGroups': [''],
@@ -302,7 +347,7 @@ obj MonitoringDeployer {
             if e.status == 404 {
                 rbac_v1.create_cluster_role(body=cluster_role_body);
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -312,7 +357,7 @@ obj MonitoringDeployer {
             'kind': 'ClusterRoleBinding',
             'metadata': {
                 'name': cluster_role_binding_name,
-                'labels': {'app': ksm_name}
+                'labels': {'app': ksm_name, 'managed': 'jac-scale'}
             },
             'roleRef': {
                 'apiGroup': 'rbac.authorization.k8s.io',
@@ -329,7 +374,7 @@ obj MonitoringDeployer {
             if e.status == 404 {
                 rbac_v1.create_cluster_role_binding(body=crb_body);
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -340,19 +385,30 @@ obj MonitoringDeployer {
             'metadata': {
                 'name': ksm_name,
                 'namespace': namespace,
-                'labels': {'app': ksm_name}
+                'labels': {'app': ksm_name, 'managed': 'jac-scale'}
             },
             'spec': {
                 'replicas': 1,
                 'selector': {'matchLabels': {'app': ksm_name}},
                 'template': {
-                    'metadata': {'labels': {'app': ksm_name}},
+                    'metadata': {'labels': {'app': ksm_name, 'managed': 'jac-scale'}},
                     'spec': {
+                        'automountServiceAccountToken': True,
                         'serviceAccountName': ksm_sa_name,
+                        'securityContext': {
+                            'seccompProfile': {'type': 'RuntimeDefault'}
+                        },
                         'containers': [
                             {
                                 'name': 'kube-state-metrics',
                                 'image': 'registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.10.1',
+                                'securityContext': {
+                                    'runAsNonRoot': True,
+                                    'runAsUser': 65534,
+                                    'readOnlyRootFilesystem': True,
+                                    'allowPrivilegeEscalation': False,
+                                    'capabilities': {'drop': ['ALL']}
+                                },
                                 'ports': [
                                     {'containerPort': 8080, 'name': 'http-metrics'},
                                     {'containerPort': 8081, 'name': 'telemetry'}
@@ -381,7 +437,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=ksm_deployment
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -392,7 +448,7 @@ obj MonitoringDeployer {
             'metadata': {
                 'name': f"{ksm_name}-service",
                 'namespace': namespace,
-                'labels': {'app': ksm_name}
+                'labels': {'app': ksm_name, 'managed': 'jac-scale'}
             },
             'spec': {
                 'type': 'ClusterIP',
@@ -417,7 +473,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=ksm_service
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -445,18 +501,32 @@ obj MonitoringDeployer {
             'metadata': {
                 'name': ne_name,
                 'namespace': namespace,
-                'labels': {'app': ne_name}
+                'labels': {'app': ne_name, 'managed': 'jac-scale'}
             },
             'spec': {
                 'selector': {'matchLabels': {'app': ne_name}},
                 'template': {
-                    'metadata': {'labels': {'app': ne_name}},
+                    'metadata': {'labels': {'app': ne_name, 'managed': 'jac-scale'}},
                     'spec': {
+                        'automountServiceAccountToken': False,
                         'tolerations': [{'operator': 'Exists', 'effect': 'NoSchedule'}],
+                        'securityContext': {
+                            'seccompProfile': {'type': 'RuntimeDefault'}
+                        },
                         'containers': [
                             {
                                 'name': 'node-exporter',
                                 'image': 'prom/node-exporter:v1.10.2',
+                                # node-exporter reads host proc/sys paths — readOnlyRootFilesystem
+                                # and allowPrivilegeEscalation are still hardened; capabilities
+                                # are kept minimal (only SYS_TIME omitted as not needed).
+                                'securityContext': {
+                                    'runAsNonRoot': True,
+                                    'runAsUser': 65534,
+                                    'readOnlyRootFilesystem': True,
+                                    'allowPrivilegeEscalation': False,
+                                    'capabilities': {'drop': ['ALL']}
+                                },
                                 'args': [
                                     '--path.procfs=/host/proc',
                                     '--path.sysfs=/host/sys'
@@ -492,7 +562,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=ne_daemonset
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -526,7 +596,7 @@ obj MonitoringDeployer {
             if e.status == 404 {
                 core_v1.create_namespaced_service(namespace=namespace, body=ne_service);
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -576,7 +646,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=grafana_secret
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -618,7 +688,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=grafana_ds_configmap
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -660,7 +730,7 @@ obj MonitoringDeployer {
                     namespace=namespace, body=grafana_provider_configmap
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
@@ -957,7 +1027,32 @@ obj MonitoringDeployer {
                     namespace=namespace, body=grafana_dashboard_configmap
                 );
             } else {
-                raise ;
+                raise;
+            }
+        }
+
+        grafana_sa_name = f"{grafana_name}-sa";
+        grafana_sa = {
+            'apiVersion': 'v1',
+            'kind': 'ServiceAccount',
+            'metadata': {
+                'name': grafana_sa_name,
+                'namespace': namespace,
+                'labels': {'app': grafana_name, 'managed': 'jac-scale'}
+            },
+            'automountServiceAccountToken': False
+        };
+        try {
+            core_v1.read_namespaced_service_account(
+                name=grafana_sa_name, namespace=namespace
+            );
+        } except ApiException as e {
+            if e.status == 404 {
+                core_v1.create_namespaced_service_account(
+                    namespace=namespace, body=grafana_sa
+                );
+            } else {
+                raise;
             }
         }
 
@@ -975,13 +1070,37 @@ obj MonitoringDeployer {
                 'template': {
                     'metadata': {'labels': {'app': grafana_name}},
                     'spec': {
+                        'automountServiceAccountToken': False,
+                        'serviceAccountName': grafana_sa_name,
+                        'securityContext': {
+                            'seccompProfile': {'type': 'RuntimeDefault'}
+                        },
                         'containers': [
                             {
                                 'name': 'grafana',
                                 'image': 'grafana/grafana:latest',
+                                'securityContext': {
+                                    'runAsNonRoot': True,
+                                    'runAsUser': 472,
+                                    'readOnlyRootFilesystem': True,
+                                    'allowPrivilegeEscalation': False,
+                                    'capabilities': {'drop': ['ALL']}
+                                },
                                 'ports': [{'containerPort': 3000}],
                                 'envFrom': [
                                     {'secretRef': {'name': grafana_secret_name}}
+                                ],
+                                'env': [
+                                    {
+                                        'name': 'GF_SERVER_ROOT_URL',
+                                        'value': f"http://{self.k8s_config.domain}/grafana"
+                                            if self.k8s_config.domain
+                                            else '%(protocol)s://%(domain)s/grafana'
+                                    },
+                                    {
+                                        'name': 'GF_SERVER_SERVE_FROM_SUB_PATH',
+                                        'value': 'true'
+                                    }
                                 ],
                                 'volumeMounts': [
                                     {
@@ -995,7 +1114,12 @@ obj MonitoringDeployer {
                                     {
                                         'name': 'grafana-dashboard-vol',
                                         'mountPath': '/var/lib/grafana/dashboards'
-                                    }
+                                    },
+                                    {
+                                        'name': 'grafana-data',
+                                        'mountPath': '/var/lib/grafana'
+                                    },
+                                    {'name': 'tmp', 'mountPath': '/tmp'}
                                 ]
                             }
                         ],
@@ -1013,7 +1137,9 @@ obj MonitoringDeployer {
                             {
                                 'name': 'grafana-dashboard-vol',
                                 'configMap': {'name': f"{grafana_name}-dashboard"}
-                            }
+                            },
+                            {'name': 'grafana-data', 'emptyDir': {}},
+                            {'name': 'tmp', 'emptyDir': {}}
                         ]
                     }
                 }
@@ -1029,53 +1155,25 @@ obj MonitoringDeployer {
                     namespace=namespace, body=grafana_deployment
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
-        # Service: NodePort locally, dedicated LoadBalancer (NLB) on AWS
-        if cluster_env == 'aws' {
-            grafana_service = {
-                'apiVersion': 'v1',
-                'kind': 'Service',
-                'metadata': {
-                    'name': f"{grafana_name}-service",
-                    'namespace': namespace,
-                    'labels': {'app': grafana_name, 'managed': 'jac-scale'},
-                    'annotations': {
-                        'service.beta.kubernetes.io/aws-load-balancer-type': 'nlb',
-                        'service.beta.kubernetes.io/aws-load-balancer-scheme': 'internet-facing'
-                    }
-                },
-                'spec': {
-                    'type': 'LoadBalancer',
-                    'selector': {'app': grafana_name},
-                    'ports': [{'protocol': 'TCP', 'port': 80, 'targetPort': 3000}]
-                }
-            };
-        } else {
-            grafana_service = {
-                'apiVersion': 'v1',
-                'kind': 'Service',
-                'metadata': {
-                    'name': f"{grafana_name}-service",
-                    'namespace': namespace,
-                    'labels': {'app': grafana_name, 'managed': 'jac-scale'}
-                },
-                'spec': {
-                    'type': 'NodePort',
-                    'selector': {'app': grafana_name},
-                    'ports': [
-                        {
-                            'protocol': 'TCP',
-                            'port': 3000,
-                            'targetPort': 3000,
-                            'nodePort': self.k8s_config.grafana_node_port
-                        }
-                    ]
-                }
-            };
-        }
+        # Service: always ClusterIP — exposed via NGINX Ingress at /grafana
+        grafana_service = {
+            'apiVersion': 'v1',
+            'kind': 'Service',
+            'metadata': {
+                'name': f"{grafana_name}-service",
+                'namespace': namespace,
+                'labels': {'app': grafana_name, 'managed': 'jac-scale'}
+            },
+            'spec': {
+                'type': 'ClusterIP',
+                'selector': {'app': grafana_name},
+                'ports': [{'protocol': 'TCP', 'port': 3000, 'targetPort': 3000}]
+            }
+        };
 
         try {
             core_v1.read_namespaced_service(
@@ -1087,18 +1185,14 @@ obj MonitoringDeployer {
                     namespace=namespace, body=grafana_service
                 );
             } else {
-                raise ;
+                raise;
             }
         }
 
         if self.logger {
-            if cluster_env == 'aws' {
-                self.logger.info(f"Grafana deployed for '{app_name}'");
-            } else {
-                self.logger.info(
-                    f"Grafana deployed for '{app_name}' accessible at localhost:{self.k8s_config.grafana_node_port}"
-                );
-            }
+            self.logger.info(
+                f"Grafana deployed for '{app_name}' (ClusterIP, accessible via ingress at /grafana)"
+            );
         }
     }
 
@@ -1146,7 +1240,7 @@ obj MonitoringDeployer {
             );
         } except ApiException as e {
             if e.status != 404 {
-                raise ;
+                raise;
             }
         }
 
@@ -1166,7 +1260,7 @@ obj MonitoringDeployer {
             );
         } except ApiException as e {
             if e.status != 404 {
-                raise ;
+                raise;
             }
         }
         # ClusterRole and ClusterRoleBinding are cluster-scoped (no namespace param)
@@ -1175,14 +1269,14 @@ obj MonitoringDeployer {
             rbac_v1.delete_cluster_role(name=cluster_role_name);
         } except ApiException as e {
             if e.status != 404 {
-                raise ;
+                raise;
             }
         }
         try {
             rbac_v1.delete_cluster_role_binding(name=cluster_role_binding_name);
         } except ApiException as e {
             if e.status != 404 {
-                raise ;
+                raise;
             }
         }
         # node-exporter resources (DaemonSet)
@@ -1190,7 +1284,7 @@ obj MonitoringDeployer {
             apps_v1.delete_namespaced_daemon_set(name=ne_name, namespace=namespace);
         } except ApiException as e {
             if e.status != 404 {
-                raise ;
+                raise;
             }
         }
         delete_if_exists(
@@ -1219,11 +1313,23 @@ obj MonitoringDeployer {
                 core_v1.delete_namespaced_config_map(name=cm_name, namespace=namespace);
             } except ApiException as e {
                 if e.status != 404 {
-                    raise ;
+                    raise;
                 }
             }
         }
         delete_k8s_secret(core_v1, namespace, f"{grafana_name}-secret");
+        delete_if_exists(
+            core_v1.delete_namespaced_service_account,
+            f"{prometheus_name}-sa",
+            namespace,
+            'ServiceAccount'
+        );
+        delete_if_exists(
+            core_v1.delete_namespaced_service_account,
+            f"{grafana_name}-sa",
+            namespace,
+            'ServiceAccount'
+        );
 
         if self.logger {
             self.logger.info(f"Monitoring stack destroyed for '{app_name}'");

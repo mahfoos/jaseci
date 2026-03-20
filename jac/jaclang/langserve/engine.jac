@@ -67,12 +67,15 @@ obj JacLangServer(JacProgram, LanguageServer) {
     def _clear_alerts_for_file(file_path: str) -> None;
     def get_ir(file_path: str) -> Optional[uni.Module];
     def update_modules(file_path: str, build: uni.Module, need: bool = True) -> None;
-    def type_check_file(file_uri: str, cancel_token: Event | None = None) -> bool;
+    def type_check_file(
+        file_uri: str, cancel_token: threading.Event | None = None
+    ) -> bool;
+
     def type_check(file_uri: str) -> None;
     def _do_type_check(file_uri: str) -> None;
     def get_token_at_position(
         file_path: str, position: lspt.Position
-    ) -> Optional[uni.AstNode];
+    ) -> Optional[uni.UniNode];
 
     def debug(msg: str) -> None;
     def wait_till_idle_sync(file_uri: str) -> None;
@@ -80,18 +83,18 @@ obj JacLangServer(JacProgram, LanguageServer) {
         file_uri: str, position: lspt.Position, completion_trigger: Optional[str]
     ) -> lspt.CompletionList;
 
-    def get_ast_of_file(file_path: str) -> Optional[uni.AstNode];
+    def get_ast_of_file(file_path: str) -> Optional[uni.UniNode];
     def get_node_at_position(
         file_path: str, line: int, col: int
-    ) -> Optional[uni.AstNode];
+    ) -> Optional[uni.UniNode];
 
-    def get_completion_of_node(nd: uni.AstNode) -> lspt.CompletionList;
-    def get_node_type(n: uni.AstNode) -> Optional[TypeBase];
+    def get_completion_of_node(nd: uni.UniNode) -> lspt.CompletionList;
+    def get_node_type(n: uni.UniNode) -> Optional[TypeBase];
     def get_completion_items_of(ty: TypeBase | uni.UniScopeNode) -> lspt.CompletionList;
     def rename_module(old_path: str, new_path: str) -> None;
     def close_module(uri: str) -> None;
     def delete_module(uri: str) -> None;
-    def formatted_jac(file_path: str) -> list[lspt.TextEdit];
+    def format_document(file_path: str, auto_lint: bool = False) -> list[lspt.TextEdit];
     def get_hover_info(file_path: str, position: lspt.Position) -> Optional[lspt.Hover];
     def get_node_info(sym_node: uni.AstSymbolNode) -> Optional[str];
     def get_outline(file_path: str) -> list[lspt.DocumentSymbol];

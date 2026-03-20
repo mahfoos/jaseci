@@ -21,7 +21,9 @@ import from threading { Event }
 import from typing { TYPE_CHECKING, TypeAlias, TypeVar, cast }
 import jaclang.jac0core.unitree as uni;
 import from jaclang.jac0core.constant { Tokens as Tok }
-import from jaclang.jac0core.passes.uni_pass { Transform }
+import from jaclang.jac0core.diagnostics { E5041, E5042 }
+import from jaclang.jac0core.helpers { evaluate_version_condition }
+import from jaclang.jac0core.passes.transform { Transform }
 
 with entry {
     if TYPE_CHECKING {
@@ -38,11 +40,13 @@ obj PyastBuildPass(Transform[uni.PythonModuleAst, uni.Module]) {
         cancel_token: Event | None = None,
         mod_path: str by postinit,
         orig_src: str by postinit,
+        _source_lines: list[str] by postinit,
         in_type_annotation: bool by postinit,
         in_match_pattern: bool by postinit,
         in_fstring_expr: bool by postinit;
 
     def postinit -> None;
+    def _get_source_segment(nd: py_ast.AST) -> (str | None);
     def nu(nd: T) -> T;
     def convert(nd: py_ast.AST) -> uni.UniNode;
     def transform(ir_in: uni.PythonModuleAst) -> uni.Module;
@@ -66,6 +70,7 @@ obj PyastBuildPass(Transform[uni.PythonModuleAst, uni.Module]) {
     def proc_async_for(nd: py_ast.AsyncFor) -> uni.InForStmt;
     def proc_while(nd: py_ast.While) -> uni.WhileStmt;
     def proc_if(nd: py_ast.If) -> uni.IfStmt;
+    def _flatten_version_conditionals(body: list[uni.UniNode]) -> list[uni.UniNode];
     def proc_with(nd: py_ast.With) -> uni.WithStmt;
     def proc_async_with(nd: py_ast.AsyncWith) -> uni.WithStmt;
     def proc_raise(nd: py_ast.Raise) -> uni.RaiseStmt;
@@ -82,15 +87,11 @@ obj PyastBuildPass(Transform[uni.PythonModuleAst, uni.Module]) {
     def proc_continue(nd: py_ast.Continue) -> uni.CtrlStmt;
     def proc_dict(nd: py_ast.Dict) -> uni.DictVal;
     def proc_dict_comp(nd: py_ast.DictComp) -> uni.DictCompr;
-    """Process python node."""
     def proc_ellipsis(nd: py_ast.Constant) -> None { }
-
     def proc_except_handler(nd: py_ast.ExceptHandler) -> uni.Except;
     def proc_expr(nd: py_ast.Expr) -> uni.ExprStmt;
     def proc_formatted_value(nd: py_ast.FormattedValue) -> uni.FormattedValue;
-    """Process python node."""
     def proc_function_type(nd: py_ast.FunctionType) -> None { }
-
     def proc_generator_exp(nd: py_ast.GeneratorExp) -> uni.GenCompr;
     def proc_global(nd: py_ast.Global) -> uni.GlobalStmt;
     def proc_if_exp(nd: py_ast.IfExp) -> uni.IfElseExpr;
@@ -160,18 +161,10 @@ obj PyastBuildPass(Transform[uni.PythonModuleAst, uni.Module]) {
     def proc_keyword(nd: py_ast.keyword) -> uni.KWPair;
     def proc_match_case(nd: py_ast.match_case) -> uni.MatchCase;
     def proc_withitem(nd: py_ast.withitem) -> uni.ExprAsItem;
-    """Process python node."""
     def proc_param_spec(nd: py_ast.ParamSpec) -> None { }
-
-    """Process python node."""
     def proc_type_alias(nd: py_ast.TypeAlias) -> None { }
-
-    """Process python node."""
     def proc_type_var(nd: py_ast.TypeVar) -> None { }
-
-    """Process python node."""
     def proc_type_var_tuple(nd: py_ast.TypeVarTuple) -> None { }
-
     def convert_to_doc(string: uni.String) -> None;
     def aug_op_map(tok_dict: dict, op: uni.Token) -> str;
 }

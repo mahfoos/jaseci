@@ -1,6 +1,14 @@
+# Module-level dunders injected by Python's import system.
+# mypy already knows about these in .pyi files, so we suppress redefinition
+# warnings; the Jac type checker needs them declared explicitly here.
+__name__: str  # type: ignore[no-redef]
+__file__: str | None  # type: ignore[no-redef]
+__doc__: str | None  # type: ignore[no-redef]
+__package__: str | None  # type: ignore[no-redef]
+__spec__: object  # type: ignore[no-redef]
+
 # typing.pyi file definitions for special forms
 class Final: ...
-class LiteralString(str): ...
 
 # Core Jaclang builtin types
 class Node: ...

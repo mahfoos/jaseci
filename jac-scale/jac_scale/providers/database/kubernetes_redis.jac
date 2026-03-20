@@ -4,8 +4,6 @@ import hashlib;
 import logging;
 import from pathlib { Path }
 import from typing { Any }
-import hashlib;
-import base64;
 import from jac_scale.abstractions.database_provider { DatabaseProvider }
 import from jac_scale.abstractions.deployment_target { DeploymentTarget }
 import from jac_scale.config_loader { get_scale_config }
@@ -103,20 +101,20 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                 raise FileNotFoundError(
                     f"Redis config template not found at: {template_path}\n"
                     f"Please ensure redis.conf.template exists in the same directory."
-                ) ;
+                );
             }
 
             template_content = template_path.read_text(encoding='utf-8');
             logger.debug(f"Loaded Redis config template from {template_path}");
         } except FileNotFoundError as e {
             logger.error(f"Redis config template missing: {e}");
-            raise ;
+            raise;
         } except PermissionError as e {
             logger.error(f"Permission denied reading Redis config template: {e}");
-            raise ValueError(f"Cannot read Redis config template: {e}") ;
+            raise ValueError(f"Cannot read Redis config template: {e}");
         } except Exception as e {
             logger.error(f"Unexpected error reading Redis config template: {e}");
-            raise ValueError(f"Failed to load Redis config template: {e}") ;
+            raise ValueError(f"Failed to load Redis config template: {e}");
         }
 
         # Populate template with configuration values
@@ -143,10 +141,10 @@ obj KubernetesRedisProvider(DatabaseProvider) {
             return config_content;
         } except KeyError as e {
             logger.error(f"Missing template variable in redis.conf.template: {e}");
-            raise ValueError(f"Invalid Redis config template - missing variable: {e}") ;
+            raise ValueError(f"Invalid Redis config template - missing variable: {e}");
         } except Exception as e {
             logger.error(f"Error populating Redis config template: {e}");
-            raise ValueError(f"Failed to generate Redis config: {e}") ;
+            raise ValueError(f"Failed to generate Redis config: {e}");
         }
     }
 
@@ -163,20 +161,43 @@ obj KubernetesRedisProvider(DatabaseProvider) {
         redis_port = 6379;
         redis_service_name = f"{redis_name}-service";
         redis_config_name = f"{redis_name}-config";
+        redis_secret_name = f"{redis_name}-secret";
 
         # Get configuration values
         scale_config = get_scale_config();
         db_config = scale_config.get_database_config();
+        k8s_config = scale_config.get_kubernetes_config();
         redis_default_ttl = db_config.get('redis_default_ttl', 0);
         redis_enable_keyspace_notifications = db_config.get(
             'redis_enable_keyspace_notifications', False
         );
+        redis_username = k8s_config.get('redis_username', 'admin');
+        redis_password = k8s_config.get('redis_password', 'password');
+        connection_string = f"redis://{redis_username}:{redis_password}@{redis_service_name}:{redis_port}/0";
 
         # Load and generate Redis configuration
         redis_conf_content = self._load_redis_config();
         config_hash = self._calculate_config_hash(redis_conf_content);
 
         logger.debug(f"Redis config hash: {config_hash}");
+
+        redis_secret = {
+            'apiVersion': 'v1',
+            'kind': 'Secret',
+            'metadata': {
+                'name': redis_secret_name,
+                'labels': {
+                    'app': redis_name,
+                    'component': 'cache',
+                    'managed': 'jac-scale'
+                }
+            },
+            'stringData': {
+                'username': redis_username,
+                'password': redis_password,
+                'connection-string': connection_string
+            }
+        };
 
         # Create ConfigMap for redis.conf
         redis_configmap = {
@@ -187,7 +208,7 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                 'labels': {
                     'app': redis_name,
                     'component': 'cache',
-                    'managed-by': 'jac-scale'
+                    'managed': 'jac-scale'
                 },
                 'annotations': {
                     'config-hash': config_hash,
@@ -195,6 +216,21 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                 }
             },
             'data': {'redis.conf': redis_conf_content}
+        };
+
+        redis_sa_name = f"{redis_name}-sa";
+        redis_service_account = {
+            'apiVersion': 'v1',
+            'kind': 'ServiceAccount',
+            'metadata': {
+                'name': redis_sa_name,
+                'labels': {
+                    'app': redis_name,
+                    'component': 'cache',
+                    'managed': 'jac-scale'
+                }
+            },
+            'automountServiceAccountToken': False
         };
 
         # Create Redis Deployment
@@ -206,7 +242,7 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                 'labels': {
                     'app': redis_name,
                     'component': 'cache',
-                    'managed-by': 'jac-scale'
+                    'managed': 'jac-scale'
                 }
             },
             'spec': {
@@ -214,7 +250,11 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                 'selector': {'matchLabels': {'app': redis_name}},
                 'template': {
                     'metadata': {
-                        'labels': {'app': redis_name, 'component': 'cache'},
+                        'labels': {
+                            'app': redis_name,
+                            'component': 'cache',
+                            'managed': 'jac-scale'
+                        },
                         'annotations': {
                             # This annotation triggers pod restart when config changes
                             'redis-config-hash': config_hash,
@@ -222,20 +262,58 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                         }
                     },
                     'spec': {
+                        'automountServiceAccountToken': False,
+                        'serviceAccountName': redis_sa_name,
+                        'securityContext': {
+                            'seccompProfile': {'type': 'RuntimeDefault'}
+                        },
                         'containers': [
                             {
                                 'name': 'redis',
                                 'image': 'redis:7.2',
+                                'securityContext': {
+                                    'runAsNonRoot': True,
+                                    'runAsUser': 999,
+                                    'readOnlyRootFilesystem': True,
+                                    'allowPrivilegeEscalation': False,
+                                    'capabilities': {'drop': ['ALL']},
+                                    'seccompProfile': {'type': 'RuntimeDefault'}
+                                },
                                 'ports': [
                                     {'containerPort': redis_port, 'name': 'redis'}
                                 ],
-                                'command': ['redis-server', '/etc/redis/redis.conf'],
+                                'command': [
+                                    'sh',
+                                    '-c',
+                                    'redis-server /etc/redis/redis.conf --requirepass "$REDIS_PASSWORD"'
+                                ],
+                                'env': [
+                                    {
+                                        'name': 'REDIS_USERNAME',
+                                        'valueFrom': {
+                                            'secretKeyRef': {
+                                                'name': redis_secret_name,
+                                                'key': 'username'
+                                            }
+                                        }
+                                    },
+                                    {
+                                        'name': 'REDIS_PASSWORD',
+                                        'valueFrom': {
+                                            'secretKeyRef': {
+                                                'name': redis_secret_name,
+                                                'key': 'password'
+                                            }
+                                        }
+                                    }
+                                ],
                                 'volumeMounts': [
                                     {
                                         'name': 'redis-config',
                                         'mountPath': '/etc/redis',
                                         'readOnly': True
-                                    }
+                                    },
+                                    {'name': 'tmp', 'mountPath': '/tmp'}
                                 ],
                                 'resources': {
                                     'requests': {'cpu': '100m', 'memory': '128Mi'},
@@ -249,7 +327,13 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                                     'failureThreshold': 3
                                 },
                                 'readinessProbe': {
-                                    'exec': {'command': ['redis-cli', 'ping']},
+                                    'exec': {
+                                        'command': [
+                                            'sh',
+                                            '-c',
+                                            'redis-cli -a "$REDIS_PASSWORD" ping'
+                                        ]
+                                    },
                                     'initialDelaySeconds': 5,
                                     'periodSeconds': 5,
                                     'timeoutSeconds': 3,
@@ -261,7 +345,8 @@ obj KubernetesRedisProvider(DatabaseProvider) {
                             {
                                 'name': 'redis-config',
                                 'configMap': {'name': redis_config_name}
-                            }
+                            },
+                            {'name': 'tmp', 'emptyDir': {}}
                         ]
                     }
                 }
@@ -293,18 +378,21 @@ obj KubernetesRedisProvider(DatabaseProvider) {
             }
         };
 
-        self.connection_string = f"redis://{redis_service_name}:{redis_port}/0";
+        self.connection_string = connection_string;
 
         logger.info(
             f"Prepared Redis deployment: {redis_name} "
-            f"(connection: {self.connection_string}, config hash: {config_hash})"
+            f"(connection: redis://{redis_service_name}:{redis_port}/0, config hash: {config_hash})"
         );
 
         return {
+            'secret': redis_secret,
             'configmap': redis_configmap,
             'deployment': redis_deployment,
             'service': redis_service,
+            'service_account': redis_service_account,
             'connection_string': self.connection_string,
+            'secret_name': redis_secret_name,
             'service_name': redis_service_name,
             'config_hash': config_hash,
             'default_ttl': redis_default_ttl,
@@ -314,9 +402,12 @@ obj KubernetesRedisProvider(DatabaseProvider) {
 
     def get_connection_string -> str {
         if not self.connection_string {
-            # Generate default connection string
+            scale_config = get_scale_config();
+            k8s_config = scale_config.get_kubernetes_config();
+            redis_username = k8s_config.get('redis_username', 'admin');
+            redis_password = k8s_config.get('redis_password', 'password');
             service_name = f"{self.app_name}-redis-service";
-            self.connection_string = f"redis://{service_name}:6379/0";
+            self.connection_string = f"redis://{redis_username}:{redis_password}@{service_name}:6379/0";
         }
         return self.connection_string;
     }
@@ -336,6 +427,13 @@ obj KubernetesRedisProvider(DatabaseProvider) {
         return {
             'name': 'wait-for-redis',
             'image': wait_image,
+            'securityContext': {
+                'runAsNonRoot': True,
+                'runAsUser': 1000,
+                'readOnlyRootFilesystem': True,
+                'allowPrivilegeEscalation': False,
+                'capabilities': {'drop': ['ALL']}
+            },
             'command': [
                 'sh',
                 '-c',
@@ -349,36 +447,26 @@ obj KubernetesRedisProvider(DatabaseProvider) {
     Returns deployment and service specs for the caller to apply via the K8s API.
     Follows the same pattern as deploy(): pure spec construction, no API calls.
 
-    When insight_htpasswd is provided (htpasswd-formatted string, e.g. the output
-    of `htpasswd -nB admin mypassword`), an nginx sidecar is injected that enforces
-    HTTP basic auth in front of RedisInsight. This works identically for local
-    NodePort, AWS NLB, and Ingress (ClusterIP) deployments.
+    Authentication is handled at the NGINX Ingress level via the
+    nginx.ingress.kubernetes.io/auth-type: basic annotation, so no sidecar is needed.
     """
-    def deploy_dashboard(
-        cluster_env: str,
-        node_port: int,
-        ingress_enabled: bool = False,
-        username: str = '',
-        password: str = ''
-    ) -> dict[str, Any] {
+    def deploy_dashboard -> dict[str, Any] {
         redis_service_name = f"{self.app_name}-redis-service";
         insight_name = f"{self.app_name}-redis-insight";
-        auth_enabled = bool(username and password);
 
-        # Generate htpasswd entry using SHA1 (no external deps required).
-        # Format: username:{SHA}base64(sha1(password))
-        if auth_enabled {
-            pw_hash = base64.b64encode(
-                hashlib.sha1(password.encode('utf-8')).digest()
-            ).decode(
-                'utf-8'
-            );
-            insight_htpasswd = f"{username}:{{SHA}}{pw_hash}";
-        }
+        # RedisInsight always listens on 5540. Auth is enforced by the ingress controller.
+        service_port = 5540;
 
-        # When auth is on, nginx sidecar listens on 8080 and proxies to localhost:5540.
-        # The service targets this port so auth is enforced for all access paths.
-        service_port = 8080 if auth_enabled else 5540;
+        insight_sa_name = f"{insight_name}-sa";
+        insight_service_account = {
+            'apiVersion': 'v1',
+            'kind': 'ServiceAccount',
+            'metadata': {
+                'name': insight_sa_name,
+                'labels': {'app': insight_name, 'managed': 'jac-scale'}
+            },
+            'automountServiceAccountToken': False
+        };
 
         # RedisInsight v3 supports RI_REDIS_HOST / RI_REDIS_PORT env vars to
         # pre-seed a database connection on first start (no manual setup needed).
@@ -386,11 +474,26 @@ obj KubernetesRedisProvider(DatabaseProvider) {
             {
                 'name': 'redisinsight',
                 'image': 'redis/redisinsight:3.2.0',
+                'securityContext': {
+                    'runAsNonRoot': True,
+                    'runAsUser': 1000,
+                    'readOnlyRootFilesystem': True,
+                    'allowPrivilegeEscalation': False,
+                    'capabilities': {'drop': ['ALL']}
+                },
                 'ports': [{'containerPort': 5540}],
                 'env': [
                     {'name': 'RI_REDIS_HOST', 'value': redis_service_name},
                     {'name': 'RI_REDIS_PORT', 'value': '6379'},
-                    {'name': 'RI_REDIS_ALIAS', 'value': 'Jaseci Redis'}
+                    {'name': 'RI_REDIS_ALIAS', 'value': 'Jaseci Redis'},
+                    # RIPROXYPATH is injected into the HTML as window.__RI_PROXY_PATH__
+                    # so the JS frontend prefixes all API calls with /cache-dashboard.
+                    # Static asset paths are handled separately by the ingress sub_filter.
+                    {'name': 'RIPROXYPATH', 'value': '/cache-dashboard'}
+                ],
+                'volumeMounts': [
+                    {'name': 'insight-data', 'mountPath': '/data'},
+                    {'name': 'tmp', 'mountPath': '/tmp'}
                 ],
                 'resources': {
                     'requests': {'cpu': '100m', 'memory': '128Mi'},
@@ -399,74 +502,16 @@ obj KubernetesRedisProvider(DatabaseProvider) {
             }
         ];
 
-        pod_spec = {'containers': containers};
-
-        if auth_enabled {
-            nginx_config_name = f"{insight_name}-nginx-config";
-            auth_secret_name = f"{insight_name}-auth";
-
-            nginx_conf = """server {
-    listen 8080;
-    location / {
-        auth_basic "RedisInsight";
-        auth_basic_user_file /etc/nginx/.htpasswd;
-        proxy_pass http://localhost:5540;
-        proxy_set_header Host $host;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}""";
-
-            nginx_configmap = {
-                'apiVersion': 'v1',
-                'kind': 'ConfigMap',
-                'metadata': {
-                    'name': nginx_config_name,
-                    'labels': {'app': insight_name, 'managed': 'jac-scale'}
-                },
-                'data': {'nginx.conf': nginx_conf}
-            };
-
-            auth_secret = {
-                'apiVersion': 'v1',
-                'kind': 'Secret',
-                'metadata': {
-                    'name': auth_secret_name,
-                    'labels': {'app': insight_name, 'managed': 'jac-scale'}
-                },
-                'stringData': {'.htpasswd': insight_htpasswd}
-            };
-
-            containers.append(
-                {
-                    'name': 'nginx-auth',
-                    'image': 'nginx:1.27-alpine',
-                    'ports': [{'containerPort': 8080}],
-                    'volumeMounts': [
-                        {
-                            'name': 'nginx-config',
-                            'mountPath': '/etc/nginx/conf.d/default.conf',
-                            'subPath': 'nginx.conf'
-                        },
-                        {
-                            'name': 'htpasswd',
-                            'mountPath': '/etc/nginx/.htpasswd',
-                            'subPath': '.htpasswd'
-                        }
-                    ],
-                    'resources': {
-                        'requests': {'cpu': '50m', 'memory': '32Mi'},
-                        'limits': {'cpu': '100m', 'memory': '64Mi'}
-                    }
-                }
-            );
-
-            pod_spec['volumes'] = [
-                {'name': 'nginx-config', 'configMap': {'name': nginx_config_name}},
-                {'name': 'htpasswd', 'secret': {'secretName': auth_secret_name}}
-            ];
-        }
+        pod_spec = {
+            'automountServiceAccountToken': False,
+            'serviceAccountName': insight_sa_name,
+            'securityContext': {'seccompProfile': {'type': 'RuntimeDefault'}},
+            'containers': containers,
+            'volumes': [
+                {'name': 'insight-data', 'emptyDir': {}},
+                {'name': 'tmp', 'emptyDir': {}}
+            ]
+        };
 
         insight_deployment = {
             'apiVersion': 'apps/v1',
@@ -485,81 +530,32 @@ obj KubernetesRedisProvider(DatabaseProvider) {
             }
         };
 
-        if ingress_enabled {
-            insight_service = {
-                'apiVersion': 'v1',
-                'kind': 'Service',
-                'metadata': {
-                    'name': f"{insight_name}-service",
-                    'labels': {'app': insight_name, 'managed': 'jac-scale'}
-                },
-                'spec': {
-                    'type': 'ClusterIP',
-                    'selector': {'app': insight_name},
-                    'ports': [
-                        {
-                            'protocol': 'TCP',
-                            'port': service_port,
-                            'targetPort': service_port
-                        }
-                    ]
-                }
-            };
-        } elif cluster_env == 'aws' {
-            insight_service = {
-                'apiVersion': 'v1',
-                'kind': 'Service',
-                'metadata': {
-                    'name': f"{insight_name}-service",
-                    'labels': {'app': insight_name, 'managed': 'jac-scale'},
-                    'annotations': {
-                        'service.beta.kubernetes.io/aws-load-balancer-type': 'nlb',
-                        'service.beta.kubernetes.io/aws-load-balancer-scheme': 'internet-facing'
+        insight_service = {
+            'apiVersion': 'v1',
+            'kind': 'Service',
+            'metadata': {
+                'name': f"{insight_name}-service",
+                'labels': {'app': insight_name, 'managed': 'jac-scale'}
+            },
+            'spec': {
+                'type': 'ClusterIP',
+                'selector': {'app': insight_name},
+                'ports': [
+                    {
+                        'protocol': 'TCP',
+                        'port': service_port,
+                        'targetPort': service_port
                     }
-                },
-                'spec': {
-                    'type': 'LoadBalancer',
-                    'selector': {'app': insight_name},
-                    'ports': [
-                        {'protocol': 'TCP', 'port': 80, 'targetPort': service_port}
-                    ]
-                }
-            };
-        } else {
-            insight_service = {
-                'apiVersion': 'v1',
-                'kind': 'Service',
-                'metadata': {
-                    'name': f"{insight_name}-service",
-                    'labels': {'app': insight_name, 'managed': 'jac-scale'}
-                },
-                'spec': {
-                    'type': 'NodePort',
-                    'selector': {'app': insight_name},
-                    'ports': [
-                        {
-                            'protocol': 'TCP',
-                            'port': service_port,
-                            'targetPort': service_port,
-                            'nodePort': node_port
-                        }
-                    ]
-                }
-            };
-        }
+                ]
+            }
+        };
 
-        result = {
+        return {
             'deployment': insight_deployment,
             'service': insight_service,
+            'service_account': insight_service_account,
             'deployment_name': insight_name,
             'service_name': f"{insight_name}-service"
         };
-
-        if auth_enabled {
-            result['auth_configmap'] = nginx_configmap;
-            result['auth_secret'] = auth_secret;
-        }
-
-        return result;
     }
 }

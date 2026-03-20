@@ -12,7 +12,7 @@ impl UniNode.postinit -> None {
 
 
 """Lazy initialization of sub node table."""
-@ property
+@property
 impl UniNode._sub_node_tab -> dict[(type, list[UniNode])] {
     if (self.__sub_node_tab is None) {
         self.__sub_node_tab = {};
@@ -42,12 +42,30 @@ impl UniNode._construct_sub_node_tab -> None {
     }
 }
 
-"""Get symbol table."""
-@ property
+"""Get symbol table.
+
+For version conditionals, some scopes (IfStmt, ElseStmt) are unlinked.
+We skip unlinked scopes and return the first linked scope (or Module root).
+"""
+@property
 impl UniNode.sym_tab -> UniScopeNode {
-    return self
-        if isinstance(self, UniScopeNode)
-        else self.parent_of_type(UniScopeNode);
+    nd: (UniNode | None) = self;
+    # TODO: Refactor this wile doing JS symtab
+    while nd is not None {
+        if isinstance(nd, UniScopeNode) {
+            # Module is always valid (root scope)
+            if isinstance(nd, Module) {
+                return nd;
+            }
+            # Linked scope (has parent_scope set)
+            if nd.parent_scope is not None {
+                return nd;
+            }
+            # Unlinked scope - continue up
+        }
+        nd = nd.parent;
+    }
+    raise ValueError("No scope found");
 }
 
 """Add kid left."""
@@ -122,7 +140,7 @@ impl UniNode.resolve_tok_range -> tuple[(Token, Token)] {
     } elif isinstance(self, Token) {
         return (self, self);
     } else {
-        raise ValueError(f"Empty kid for Token {type(self).__name__}") ;
+        raise ValueError(f"Empty kid for Token {type(self).__name__}");
     }
 }
 
@@ -164,7 +182,7 @@ impl UniNode.parent_of_type(typ: type[T]) -> T {
     if isinstance(ret, typ) {
         return ret;
     } else {
-        raise ValueError(f"Parent of type {typ} not found from{type(self)}.") ;
+        raise ValueError(f"Parent of type {typ} not found from{type(self)}.");
     }
 }
 
@@ -271,7 +289,7 @@ impl UniNode.unparse -> str {
     return ' '.join([i.unparse() for i in self.kid]);
 }
 
-impl AtomExpr.postinit(self: AtomExpr) -> None {
+impl AtomExpr.postinit -> None {
     Expr.postinit(self);
     AstSymbolStubNode._init_stub(self, sym_type=SymbolType.UNKNOWN);
 }
@@ -294,25 +312,25 @@ impl Symbol.init(
 }
 
 """Get decl."""
-@ property
+@property
 impl Symbol.decl -> NameAtom {
     return self.defn[0];
 }
 
 """Get name."""
-@ property
+@property
 impl Symbol.sym_name -> str {
     return self.decl.sym_name;
 }
 
 """Get sym_type."""
-@ property
+@property
 impl Symbol.sym_type -> SymbolType {
     return self.decl.sym_category;
 }
 
 """Return a full path of the symbol."""
-@ property
+@property
 impl Symbol.sym_dotted_name -> str {
     out = [self.defn[0].sym_name];
     current_tab: (UniScopeNode | None) = self.parent_tab;
@@ -325,7 +343,7 @@ impl Symbol.sym_dotted_name -> str {
 }
 
 """Get symbol table."""
-@ property
+@property
 impl Symbol.symbol_table -> (UniScopeNode | None) {
     if self.parent_tab {
         return self.parent_tab.find_scope(self.sym_name);
@@ -404,7 +422,7 @@ impl UniScopeNode.lookup(
     );
     if (impl_def and impl_def.decl_link and impl_def.decl_link.sym_tab) {
         return impl_def.decl_link.sym_tab.lookup(
-            name, deep=True, incl_inner_scope=True
+            name, deep=True, incl_inner_scope=False
         );
     }
     return None;
@@ -478,13 +496,6 @@ impl UniScopeNode.link_kid_scope(key_node: UniScopeNode) -> UniScopeNode {
     key_node.parent_scope = self;
     self.kid_scope.append(key_node);
     return self.kid_scope[-1];
-}
-
-"""Inherit symbol table."""
-impl UniScopeNode.inherit_sym_tab(target_sym_tab: UniScopeNode) -> None {
-    for i in target_sym_tab.names_in_scope.values() {
-        self.def_insert(i.decl, access_spec=i.access);
-    }
 }
 
 """Insert into symbol table."""
@@ -597,7 +608,7 @@ impl UniScopeNode.update_py_ctx_for_def(nd: AstSymbolNode) -> None {
 
 """Pretty print."""
 impl UniScopeNode.sym_pp(depth: (int | None) = None) -> str {
-    return print_symtab_tree(`root=self, depth=depth);
+    return print_symtab_tree(root=self, depth=depth);
 }
 
 """Generate dot graph for sym table."""
@@ -625,28 +636,28 @@ impl AstSymbolNode._init_symbol(
 }
 
 
-@ property
+@property
 impl AstSymbolNode.sym -> (Symbol | None) {
     return self.name_spec.sym;
 }
 
-@ property
+@property
 impl AstSymbolNode.sym_name -> str {
     return self.name_spec.sym_name;
 }
 
-@ property
+@property
 impl AstSymbolNode.sym_category -> SymbolType {
     return self.name_spec.sym_category;
 }
 
-@ property
+@property
 impl AstSymbolNode.py_ctx_func -> type[ast3.AST] {
     return self.name_spec.py_ctx_func;
 }
 
 """Get type symbol table."""
-@ property
+@property
 impl AstSymbolNode.type_sym_tab -> (UniScopeNode | None) {
     return self.name_spec.type_sym_tab;
 }
@@ -661,7 +672,7 @@ impl AstSymbolStubNode._init_stub(sym_type: SymbolType) -> None {
 }
 
 
-@ property
+@property
 impl AstAccessNode.access_type -> SymbolAccess {
     return SymbolAccess.PRIVATE
         if (self.access and (self.access.tag.name == Tok.KW_PRIV))
@@ -670,7 +681,7 @@ impl AstAccessNode.access_type -> SymbolAccess {
             else SymbolAccess.PUBLIC;
 }
 
-@ property
+@property
 impl AstAccessNode.public_access -> bool {
     return (self.access_type == SymbolAccess.PUBLIC);
 }
@@ -710,6 +721,11 @@ impl UniCFGNode.postinit -> None {
     self.affected_symbols = set();
 }
 
+"""Initialize ConditionalNode (CFG branch point with true/false targets)."""
+impl ConditionalNode.postinit -> None {
+    UniCFGNode.postinit(self);
+}
+
 
 """Get head by walking up the CFG iteratively."""
 impl UniCFGNode.get_head -> UniCFGNode {
@@ -717,8 +733,12 @@ impl UniCFGNode.get_head -> UniCFGNode {
     while (
         nd.bb_in
         and (len(nd.bb_in) == 1)
-        and not isinstance(nd, (InForStmt, IterForStmt, WhileStmt))
-        and not isinstance(nd.bb_in[0], (InForStmt, IterForStmt, WhileStmt))
+        and not isinstance(
+            nd, (InForStmt, IterForStmt, WhileStmt, ConditionalNode)
+        )
+        and not isinstance(
+            nd.bb_in[0], (InForStmt, IterForStmt, WhileStmt, ConditionalNode)
+        )
         and nd.bb_in[0].bb_out
         and (len(nd.bb_in[0].bb_out) == 1)
     ) {
@@ -733,7 +753,9 @@ impl UniCFGNode.get_tail -> UniCFGNode {
     while (
         nd.bb_out
         and (len(nd.bb_out) == 1)
-        and not isinstance(nd, (InForStmt, IterForStmt, WhileStmt))
+        and not isinstance(
+            nd, (InForStmt, IterForStmt, WhileStmt, ConditionalNode)
+        )
         and not isinstance(nd.bb_out[0], (InForStmt, IterForStmt, WhileStmt))
         and nd.bb_out[0].bb_in
         and (len(nd.bb_out[0].bb_in) == 1)
@@ -747,6 +769,7 @@ impl Expr.postinit -> None {
     self._type_sym_tab = None;
     self.type = None;
     self.attached_tokens = None;
+    self.backend_type_tag = None;
 }
 
 
@@ -756,7 +779,7 @@ impl CodeBlockStmt.postinit -> None {
 }
 
 
-@ property
+@property
 impl AstImplNeedingNode.needs_impl -> bool {
     return (self.body is None);
 }
@@ -771,12 +794,12 @@ impl NameAtom.postinit -> None {
 }
 
 
-@ property
+@property
 impl NameAtom.sym_name -> str {
     return self._sym_name;
 }
 
-@ property
+@property
 impl NameAtom.sym_category -> SymbolType {
     return self._sym_category;
 }
@@ -791,7 +814,7 @@ impl NameAtom.create_symbol(
     return sym;
 }
 
-@ property
+@property
 impl NameAtom.clean_type -> str {
     if self.type {
         return str(self.type).replace('builtins.', '');
@@ -800,7 +823,7 @@ impl NameAtom.clean_type -> str {
 }
 
 """Resolve semantic token."""
-@ property
+@property
 impl NameAtom.sem_token -> (tuple[(SemTokType, SemTokMod)] | None) {
     if isinstance(self.name_of, BuiltinType) {
         return (SemTokType.CLASS, SemTokMod.DECLARATION);
@@ -838,6 +861,13 @@ impl NameAtom.sem_token -> (tuple[(SemTokType, SemTokMod)] | None) {
         return (SemTokType.FUNCTION, SemTokMod.DEFINITION);
     }
     if self.sym {
+        # Before falling through to PROPERTY, check if the node's resolved type
+        # is a function/overloaded type. This handles imported functions where
+        # sym.decl.name_of is a plain Name (import alias) rather than Ability.
+        if self.type is not None
+        and type(self.type).__name__ in ('FunctionType', 'OverloadedType') {
+            return (SemTokType.FUNCTION, SemTokMod.DEFINITION);
+        }
         return (SemTokType.PROPERTY, SemTokMod.DEFINITION);
     }
     # Handle __getattr__ dynamic attributes (explicitly marked by type checker)
@@ -876,7 +906,7 @@ impl Module.postinit -> None {
         - Module-specific folder: foo.impl/bar.impl.jac -> foo.jac
         - Shared folder: impl/foo.impl.jac -> foo.jac
         """
-@ property
+@property
 impl Module.annexable_by -> (str | None) {
     if self.stub_only {
         return None;
@@ -981,6 +1011,7 @@ impl Test.postinit -> None {
         sym_category=SymbolType.TEST
     );
     UniScopeNode._init_scope(self, name=self.sym_name);
+    CodeBlockStmt.postinit(self);
     ContextAwareNode.postinit(self);
 }
 
@@ -1024,7 +1055,7 @@ impl Import.postinit -> None {
 
 
 """Check if import is python."""
-@ property
+@property
 impl Import.is_py -> bool {
     if (self.hint and (self.hint.tag.value == 'py')) {
         return True;
@@ -1036,7 +1067,7 @@ impl Import.is_py -> bool {
 }
 
 """Check if import is jac."""
-@ property
+@property
 impl Import.is_jac -> bool {
     if (self.hint and (self.hint.tag.value == 'jac')) {
         return True;
@@ -1048,7 +1079,7 @@ impl Import.is_jac -> bool {
 }
 
 """Check if import is jac."""
-@ property
+@property
 impl Import.__jac_detected -> bool {
     if self.from_loc {
         if self.from_loc.resolve_relative_path().endswith(('.jac', '.cl.jac')) {
@@ -1092,7 +1123,7 @@ impl ModulePath.postinit -> None {
 
 
 """Check if this modulepath is from import."""
-@ property
+@property
 impl ModulePath.is_import_from -> bool {
     if (self.parent and isinstance(self.parent, Import)) {
         return (self.parent.from_loc == self);
@@ -1101,7 +1132,7 @@ impl ModulePath.is_import_from -> bool {
 }
 
 """Get path string."""
-@ property
+@property
 impl ModulePath.dot_path_str -> str {
     if (self.path and (len(self.path) == 1) and isinstance(self.path[0], String)) {
         return (('.' * self.level) + self.path[0].lit_value);
@@ -1135,13 +1166,55 @@ impl ModulePath.resolve_relative_path(target_item: (str | None) = None) -> str {
     return resolve_relative_path(target, self.loc.mod_path);
 }
 
-"""Convert an import target string into a relative file path."""
+"""Convert an import target string into a list of file paths, one per segment.
+
+Resolves the FULL dotted path first (which uses sys.path, importlib, etc.)
+and then derives intermediate paths by walking up the directory tree.
+This ensures that intermediate package directories (e.g., 'jaclang.cli')
+resolve correctly even when per-prefix resolution would fail.
+"""
 impl ModulePath.resolve_relative_path_list -> list[str] {
     parts = self.dot_path_str.split('.');
-    paths = [];
-    for i in range(len(parts)) {
-        sub_path = '.'.join(parts[:(i + 1)]);
-        paths.append(resolve_relative_path(sub_path, self.loc.mod_path));
+    if not parts {
+        return [];
+    }
+    # Resolve the full dotted path — this uses the most robust resolution
+    # (sys.path, importlib, typeshed, etc.) and is the authoritative result.
+    full_path = resolve_relative_path(self.dot_path_str, self.loc.mod_path);
+    # Derive intermediate paths by walking up the directory tree.
+    # e.g., jaclang.cli.console -> .../jaclang/cli/console.jac
+    #   console -> .../jaclang/cli/console.jac (the full resolved path)
+    #   cli     -> .../jaclang/cli/            (parent directory)
+    #   jaclang -> .../jaclang/                (grandparent directory)
+    # For each intermediate directory, check for __init__.jac or __init__.py
+    # so that get_type_of_module() can import them properly.
+    paths: list[str] = [''] * len(parts);
+    paths[-1] = full_path;
+    # Walk up from the resolved path's parent directory.
+    # When the full path is a package __init__ file (e.g., pkg/__init__.py),
+    # dirname gives us the package dir itself (which represents the last
+    # segment), so we need to go one level further up.
+    full_basename = os.path.basename(full_path);
+    cur_dir = os.path.dirname(full_path);
+    if full_basename.startswith('__init__') {
+        cur_dir = os.path.dirname(cur_dir);
+    }
+    for i in range(len(parts) - 2, -1, -1) {
+        init_found = False;
+        for init_name in ('__init__.jac', '__init__.py', '__init__.pyi') {
+            init_path = os.path.join(cur_dir, init_name);
+            if os.path.isfile(init_path) {
+                paths[i] = init_path;
+                init_found = True;
+                break;
+            }
+        }
+        if not init_found {
+            # Namespace package (no __init__) — use the directory path itself
+            # so get_type_of_module can handle it via is_dir() check.
+            paths[i] = cur_dir;
+        }
+        cur_dir = os.path.dirname(cur_dir);
     }
     return paths;
 }
@@ -1153,21 +1226,33 @@ impl ModuleItem.postinit -> None {
 
 
 """Get import parent."""
-@ property
+@property
 impl ModuleItem.from_parent -> Import {
     if (not self.parent or not isinstance(self.parent, Import)) {
-        raise ValueError('Import parent not found. Not Possible.') ;
+        raise ValueError('Import parent not found. Not Possible.');
     }
     return self.parent;
 }
 
 """Get relevant module path."""
-@ property
+@property
 impl ModuleItem.from_mod_path -> ModulePath {
     if not self.from_parent.from_loc {
-        raise ValueError('Module items should have module path. Not Possible.') ;
+        raise ValueError('Module items should have module path. Not Possible.');
     }
     return self.from_parent.from_loc;
+}
+
+"""Resolve the absolute path for this specific module item."""
+impl ModuleItem.resolve_relative_path -> str {
+    # Get the item name (handles both Name and Token types)
+    item_name = self.name.value if isinstance(self.name, Name) else None;
+    # For star imports (*) or default imports, just return parent module path
+    if item_name is None {
+        return self.from_mod_path.resolve_relative_path();
+    }
+    # Resolve: parent_module.item_name (e.g., llvmlite.ir)
+    return self.from_mod_path.resolve_relative_path(target_item=item_name);
 }
 
 impl Archetype.postinit -> None {
@@ -1204,7 +1289,7 @@ impl Archetype._get_impl_resolved_body -> list {
             else [];
 }
 
-@ property
+@property
 impl Archetype.is_abstract -> bool {
     body = self._get_impl_resolved_body();
     return `any((isinstance(i, Ability) and i.is_abstract) for i in body);
@@ -1318,9 +1403,7 @@ impl Ability.postinit -> None {
             if (self.kid and isinstance(self.kid[0], Token))
             else None;
         if (first_tok is None) {
-            raise ValueError(
-                'Cannot create synthetic name_ref without location info.'
-            ) ;
+            raise ValueError('Cannot create synthetic name_ref without location info.');
         }
         event_type = 'entry'
             if (
@@ -1358,29 +1441,32 @@ impl Ability.postinit -> None {
 }
 
 
-@ property
+@property
 impl Ability.is_method -> bool {
     return (self.method_owner is not None);
 }
 
 """Check if this ability is a class method."""
-@ property
+@property
 impl Ability.is_cls_method -> bool {
     return (
-        self.is_method
-        and `any(
-            (isinstance(dec, Name) and (dec.sym_name == 'classmethod'))
-            for dec in (self.decorators or ())
+        self.is_classmethod
+        or (
+            self.is_method
+            and `any(
+                (isinstance(dec, Name) and (dec.sym_name == 'classmethod'))
+                for dec in (self.decorators or ())
+            )
         )
     );
 }
 
-@ property
+@property
 impl Ability.is_def -> bool {
     return (not self.signature or isinstance(self.signature, FuncSignature));
 }
 
-@ property
+@property
 impl Ability.method_owner -> Archetype | Enum | None {
     found = (
         self.parent
@@ -1399,7 +1485,7 @@ impl Ability.method_owner -> Archetype | Enum | None {
     return found;
 }
 
-@ property
+@property
 impl Ability.is_genai_ability -> bool {
     return isinstance(self.body, Expr);
 }
@@ -1440,7 +1526,7 @@ impl Ability.py_resolve_name -> str {
     } elif isinstance(self.name_ref, SpecialVarRef) {
         return self.name_ref.py_resolve_name();
     } else {
-        raise NotImplementedError ;
+        raise NotImplementedError;
     }
 }
 
@@ -1465,7 +1551,7 @@ impl FuncSignature.get_parameters -> list[ParamVar] {
     return params;
 }
 
-@ property
+@property
 impl FuncSignature.is_static -> bool {
     return (
         (isinstance(self.parent, Ability) and self.parent.is_static)
@@ -1477,7 +1563,7 @@ impl FuncSignature.is_static -> bool {
     );
 }
 
-@ property
+@property
 impl FuncSignature.is_in_py_class -> bool {
     is_archi = self.find_parent_of_type(Archetype);
     is_class = (is_archi is not None) and (is_archi.arch_type.name == Tok.KW_CLASS);
@@ -1514,12 +1600,12 @@ impl ParamVar.postinit -> None {
 }
 
 
-@ property
+@property
 impl ParamVar.is_vararg -> bool {
     return bool((self.unpack and (self.unpack.name == Tok.STAR_MUL.name)));
 }
 
-@ property
+@property
 impl ParamVar.is_kwargs -> bool {
     return bool((self.unpack and (self.unpack.name == Tok.STAR_POW.name)));
 }
@@ -1658,7 +1744,7 @@ impl DeleteStmt.postinit -> None {
 
 
 """Get Python AST targets (without setting ctx)."""
-@ property
+@property
 impl DeleteStmt.py_ast_targets -> list[ast3.AST] {
     return [i.gen.py_ast[0] for i in self.target.values]
         if (isinstance(self.target, TupleVal) and self.target.values)
@@ -1733,6 +1819,7 @@ impl CompareExpr.postinit -> None {
 impl BoolExpr.postinit -> None {
     UniNode.postinit(self);
     Expr.postinit(self);
+    ConditionalNode.postinit(self);
 }
 
 
@@ -1849,7 +1936,7 @@ impl AtomTrailer.postinit -> None {
 }
 
 
-@ property
+@property
 impl AtomTrailer.as_attr_list -> list[AstSymbolNode] {
     left = self.right if isinstance(self.right, AtomTrailer) else self.target;
     right = self.target if isinstance(self.right, AtomTrailer) else self.right;
@@ -1882,6 +1969,11 @@ impl FuncCall.postinit -> None {
     self.params = `list(self.params) if self.params else [];
     UniNode.postinit(self);
     Expr.postinit(self);
+}
+
+
+impl Slice.postinit -> None {
+    UniNode.postinit(self);
 }
 
 
@@ -2039,6 +2131,7 @@ impl MatchStmt.postinit -> None {
 
 impl MatchCase.postinit -> None {
     UniNode.postinit(self);
+    CodeBlockStmt.postinit(self);
     UniScopeNode._init_scope(self, name=f"{self.__class__.__name__}");
 }
 
@@ -2051,6 +2144,7 @@ impl SwitchStmt.postinit -> None {
 
 impl SwitchCase.postinit -> None {
     UniNode.postinit(self);
+    CodeBlockStmt.postinit(self);
     UniScopeNode._init_scope(self, name=f"{self.__class__.__name__}");
 }
 
@@ -2169,6 +2263,7 @@ impl Name.init(
     self._sym_name = '';
     self._sym_category = SymbolType.UNKNOWN;
     self._py_ctx_func = ast3.Load;
+    self.js_decl_kind = None;
     Expr.postinit(self);
     AstSymbolNode._init_symbol(
         self, sym_name=value, name_spec=self, sym_category=SymbolType.VAR
@@ -2206,8 +2301,6 @@ impl SpecialVarRef.py_resolve_name -> str {
         return 'props';
     } elif (self.orig.name == Tok.KW_SUPER) {
         return 'super';
-    } elif (self.orig.name == Tok.KW_ROOT) {
-        return Con.ROOT.value;
     } elif (self.orig.name == Tok.KW_HERE) {
         return Con.HERE.value;
     } elif (self.orig.name == Tok.KW_VISITOR) {
@@ -2217,7 +2310,7 @@ impl SpecialVarRef.py_resolve_name -> str {
     } elif (self.orig.name == Tok.KW_POST_INIT) {
         return '__post_init__';
     } else {
-        raise NotImplementedError('ICE: Special var reference not implemented') ;
+        raise NotImplementedError('ICE: Special var reference not implemented');
     }
 }
 
@@ -2249,33 +2342,33 @@ impl Literal.init(
 }
 
 """Return literal value in its python type."""
-@ property
+@property
 impl Literal.lit_value -> int | str | float | bool | None | Callable[
     ([], Any)
 ] | EllipsisType {
-    raise NotImplementedError ;
+    raise NotImplementedError;
 }
 
 """Return literal value in its python type."""
-@ property
+@property
 impl BuiltinType.lit_value -> Callable[([], Any)] {
     if (self.value not in Literal.type_map) {
-        raise TypeError(f"ICE: {self.value} is not a callable builtin") ;
+        raise TypeError(f"ICE: {self.value} is not a callable builtin");
     }
     return Literal.type_map[self.value];
 }
 
-@ property
+@property
 impl Float.lit_value -> float {
     return float(self.value);
 }
 
-@ property
+@property
 impl Int.lit_value -> int {
     return int(self.value, 0);
 }
 
-@ property
+@property
 impl String.lit_value -> str {
     if isinstance(self.value, `bytes) {
         return self.value;
@@ -2318,11 +2411,10 @@ impl String.lit_value -> str {
                 is_raw2 = 'r' in prefix2;
             }
             if not is_raw2 {
-                import codecs;
                 result = self.value;
                 try {
-                    result = codecs.decode(result, 'unicode_escape');
-                } except Exception {
+                    result = ast3.literal_eval(f'"{result}"');
+                } except (ValueError, SyntaxError) {
                     placeholder = '\x00';
                     result = result.replace('\\\\', placeholder);
                     result = result.replace('\\n', '\n');
@@ -2343,12 +2435,13 @@ impl String.lit_value -> str {
                 is_raw = 'r' in prefix;
             }
             if not is_raw {
-                import codecs;
                 result = self.value;
-                # Use codecs to decode all escape sequences (like \x1b, \n, \t, etc.)
+                # Use ast3.literal_eval to correctly handle escape sequences (\n, \t,
+                # \x1b, etc.) and non-ASCII Unicode chars (e.g. emojis), consistent
+                # with how normal string literals are handled above.
                 try {
-                    result = codecs.decode(result, 'unicode_escape');
-                } except Exception {
+                    result = ast3.literal_eval(f'"{result}"');
+                } except (ValueError, SyntaxError) {
                     # Fallback to manual handling if decode fails
                     placeholder = '\x00';
                     result = result.replace('\\\\', placeholder);
@@ -2364,17 +2457,17 @@ impl String.lit_value -> str {
     }
 }
 
-@ property
+@property
 impl Bool.lit_value -> bool {
     return (self.value == 'True');
 }
 
-@ property
+@property
 impl Null.lit_value -> None {
     return None;
 }
 
-@ property
+@property
 impl Ellipsis.lit_value -> EllipsisType {
     return ...;
 }
@@ -2450,7 +2543,7 @@ impl CommentToken.init(
     self.loc = CodeLocInfo(*self.resolve_tok_range());
 }
 
-@ property
+@property
 impl CommentToken.left_node -> (UniNode | None) {
     if (self.parent and ((idx := self.parent.kid.index(self)) > 0)) {
         return self.parent.kid[(idx - 1)];
@@ -2458,7 +2551,7 @@ impl CommentToken.left_node -> (UniNode | None) {
     return None;
 }
 
-@ property
+@property
 impl CommentToken.right_node -> (UniNode | None) {
     if (
         self.parent
@@ -2475,10 +2568,11 @@ impl Source.init(source: str, mod_path: str) -> None {
     self.hash = md5(source.encode()).hexdigest();
     self.file_path = mod_path;
     self.comments: list[CommentToken] = [];
+    self.inline_suppressions: dict[int, set[str]] = {};
 }
 
 """Return the source code as string."""
-@ property
+@property
 impl Source.code -> str {
     return self.value;
 }

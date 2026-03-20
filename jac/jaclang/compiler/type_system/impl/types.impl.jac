@@ -53,23 +53,27 @@ impl ModuleType.__str__ -> str {
 
 """Return a string representation of the type variable."""
 impl TypeVarType.__str__ -> str {
+    if self.name {
+        return self.name;
+    }
     return "<TypeVar>";
 }
 
-"""Return the index of the given type variable in the class type."""
-impl FunctionType._index_of_type_param(
-    class_type: ClassType, type_var: TypeVarType
-) -> int {
-    for (idx, type_param) in enumerate(class_type.shared.type_params) {
-        if (type_param is type_var) {
-            return idx;
-        }
-    }
-    return -1;
-}
+"""Specialize the function type based on the given class type. (Pyright: applySolvedTypeVars)
 
-"""Specialize the function type based on the given class type."""
+Uses the unified apply_solved_type_vars from type_utils.
+"""
 impl FunctionType.specialize(class_type: ClassType) -> FunctionType {
+    # Local import to avoid circular dependency at module load time
+    import from jaclang.compiler.type_system.type_utils {
+        apply_solved_type_vars,
+        build_type_var_solution
+    }
+
+    # Build cumulative TypeVar solution by walking MRO (handles transitive bindings)
+    solution = build_type_var_solution(class_type);
+
+    # Use unified apply_solved_type_vars (handles TypeVar, Self, nested types)
     clone = FunctionType(
         func_name=self.func_name,
         return_type=self.return_type,
@@ -85,25 +89,23 @@ impl FunctionType.specialize(class_type: ClassType) -> FunctionType {
             ) for param in self.parameters
         ]
     );
+
+    # Specialize parameter types
     for param in clone.parameters {
-        if (not param.param_type or not isinstance(param.param_type, TypeVarType)) {
-            continue;
-        }
-        idx = self._index_of_type_param(class_type, param.param_type);
-        if ((idx != -1) and (idx < len(class_type.private.type_args))) {
-            ty = class_type.private.type_args[idx];
-            ty = ty.clone_as_instance() if isinstance(ty, ClassType) else ty;
-            param.param_type = ty;
+        if param.param_type {
+            param.param_type = apply_solved_type_vars(
+                param.param_type, solution, class_type
+            );
         }
     }
-    if (clone.return_type and isinstance(clone.return_type, TypeVarType)) {
-        idx = self._index_of_type_param(class_type, clone.return_type);
-        if ((idx != -1) and (idx < len(class_type.private.type_args))) {
-            ty = class_type.private.type_args[idx];
-            ty = ty.clone_as_instance() if isinstance(ty, ClassType) else ty;
-            clone.return_type = ty;
-        }
+
+    # Specialize return type
+    if clone.return_type {
+        clone.return_type = apply_solved_type_vars(
+            clone.return_type, solution, class_type
+        );
     }
+
     return clone;
 }
 
@@ -215,6 +217,7 @@ impl ClassType.is_builtin(class_name: (str | None) = None) -> bool {
 impl ClassType.lookup_member_symbol(
     member: str, r_overloaded: list | None = None
 ) -> (Symbol | None) {
+    import jaclang.jac0core.unitree as uni;
     for cls in self.shared.mro {
         all_syms = cls.shared.symbol_table.lookup_all(member, deep=False);
         if all_syms {
@@ -222,6 +225,54 @@ impl ClassType.lookup_member_symbol(
                 r_overloaded.extend(all_syms[1:]);
             }
             return all_syms[0];
+        }
+    }
+    # Fallback: check __init__ parameters and body for self-assignments.
+    # When a class/obj is imported from another module, its impl file's self.x
+    # assignments may not have been processed by _populate_self_member_symbols.
+    # This fallback scans init params and body to resolve instance attributes.
+    for cls in self.shared.mro {
+        arch = cls.shared.symbol_table;
+        if not isinstance(arch, uni.Archetype) {
+            continue;
+        }
+        init_sym = arch.lookup('init', deep=False);
+        if not init_sym or not isinstance(init_sym.decl.name_of, uni.Ability) {
+            continue;
+        }
+        init_ability = init_sym.decl.name_of;
+        if not isinstance(init_ability.signature, uni.FuncSignature) {
+            continue;
+        }
+        # Check init parameters
+        for param in init_ability.signature.params or [] {
+            if param.name.value == member and param.name.value != 'self' {
+                arch.def_insert(param.name, access_spec=arch);
+                return arch.lookup(member, deep=False);
+            }
+        }
+        # Check self.x = ... assignments in init body (including impl body).
+        # Only for class archetypes (Python-style) — obj/node/edge/walker
+        # require explicit 'has' declarations for instance attributes.
+        if arch.arch_type.name != 'KW_CLASS' {
+            continue;
+        }
+        for trailer in init_ability.get_all_sub_nodes(uni.AtomTrailer) {
+            if not (trailer.parent and isinstance(trailer.parent, uni.Assignment)) {
+                continue;
+            }
+            if trailer != trailer.parent.target[0] {
+                continue;
+            }
+            chain = trailer.as_attr_list;
+            if (
+                len(chain) >= 2
+                and chain[0].sym_name == 'self'
+                and chain[1].sym_name == member
+            ) {
+                arch.def_insert(chain[1], access_spec=arch);
+                return arch.lookup(member, deep=False);
+            }
         }
     }
     return None;
@@ -235,7 +286,9 @@ impl ClassType.get_class_symbol -> Symbol {
 """Return a new class type specialized with the given type arguments."""
 impl ClassType.specialize_generics(type_args: list[TypeBase]) -> ClassType {
     new_private = ClassType.ClassDetailsPrivate(
-        type_args=type_args, alias_name=self.private.alias_name  # Preserve alias_name
+        type_args=type_args,
+        alias_name=self.private.alias_name,  # Preserve alias_name
+        literal_value=self.private.literal_value  # Preserve literal_value
     );
     return ClassType(shared=self.shared, private=new_private, flags=self.flags);
 }
@@ -246,7 +299,8 @@ impl ClassType.clone_as_class -> ClassType {
     }
     private = ClassType.ClassDetailsPrivate(
         type_args=self.private.type_args[:],
-        alias_name=self.private.alias_name  # Preserve alias_name
+        alias_name=self.private.alias_name,  # Preserve alias_name
+        literal_value=self.private.literal_value  # Preserve literal_value
     );
     new_flag = self.flags;
     new_flag = TypeFlags((new_flag & ~TypeFlags.Instance));
@@ -262,7 +316,8 @@ impl ClassType.clone_as_instance -> ClassType {
     }
     private = ClassType.ClassDetailsPrivate(
         type_args=self.private.type_args[:],
-        alias_name=self.private.alias_name  # Preserve alias_name
+        alias_name=self.private.alias_name,  # Preserve alias_name
+        literal_value=self.private.literal_value  # Preserve literal_value
     );
     new_instance = ClassType(shared=self.shared, private=private, flags=self.flags);
     new_flag = self.flags;
@@ -290,9 +345,74 @@ impl ClassType.is_special_form(name: str | None = None) -> bool {
     return self.private.alias_name == name;
 }
 
+"""Clone this class type with a literal value.
+
+Creates a new ClassType instance representing a Literal type like Literal["hello"].
+Similar to Pyright's creating a class type with literalValue set.
+"""
+impl ClassType.clone_with_literal(value: (str | int | bool | None)) -> ClassType {
+    private = ClassType.ClassDetailsPrivate(
+        type_args=self.private.type_args[:],
+        alias_name=None,  # Clear alias_name for literal types
+        literal_value=value
+    );
+    return ClassType(shared=self.shared, private=private, flags=self.flags);
+}
+
+"""Check if this class type is a literal type (has a literal value)."""
+impl ClassType.is_literal_type -> bool {
+    return self.private is not None and self.private.literal_value is not None;
+}
+
+"""Get the literal value of this type, or None if not a literal type."""
+impl ClassType.get_literal_value -> (str | int | bool | None) {
+    if self.private is None {
+        return None;
+    }
+    return self.private.literal_value;
+}
+
+"""Check if this ClassType is a property class (@property or @cached_property)."""
+impl ClassType.is_property_class -> bool {
+    priv = self.private;
+    if priv is None {
+        return False;
+    }
+    return priv.is_property_class;
+}
+
+"""Get the return type of the property getter, or None if not a property."""
+impl ClassType.get_getter_type_from_property -> (TypeBase | None) {
+    priv = self.private;
+    if priv is None {
+        return None;
+    }
+    if not priv.is_property_class {
+        return None;
+    }
+    fget = priv.fget_info;
+    if fget is None {
+        return None;
+    }
+    return fget.return_type;
+}
+
 """Return a string representation of the class type."""
 impl ClassType.__str__ -> str {
-    return f"<class {self.shared.class_name}>";
+    # Display literal types as Literal[value]
+    if self.private is not None and self.private.literal_value is not None {
+        lit_val = self.private.literal_value;
+        if isinstance(lit_val, str) {
+            return f"Literal[\"{lit_val}\"]";
+        }
+        return f"Literal[{lit_val}]";
+    }
+    # Include type_args in display for parameterized types (e.g., list[int], dict[str, bool])
+    if self.private and self.private.type_args {
+        args_str = ", ".join(str(arg) for arg in self.private.type_args);
+        return f"{self.shared.class_name}[{args_str}]";
+    }
+    return f"{self.shared.class_name}";
 }
 
 """Initialize the class type."""
@@ -342,10 +462,10 @@ impl TypeBase.category -> TypeCategory {
     return self.CATEGORY;
 }
 
-"""Return true if this type is UnknownType, AnyType, TypeVarType, or object."""
+"""Return true if this type is AnyType, TypeVarType, or object."""
 impl TypeBase.is_any_type -> bool {
-    # Check for UnknownType, AnyType, or TypeVarType using category
-    if self.category in (TypeCategory.Unknown, TypeCategory.Any, TypeCategory.TypeVar) {
+    # Check for AnyType or TypeVarType using category
+    if self.category in (TypeCategory.Any, TypeCategory.TypeVar) {
         return True;
     }
     # Check for object type

@@ -456,6 +456,7 @@ export default defineConfig({{
     sourcemap: true, // Enable source maps for better error messages{build_overrides_str}
   }},
   server: {{
+    host: true,
     watch: {{
       usePolling: true,
       interval: 100,
@@ -529,13 +530,21 @@ function jacSourceMapper() {{
     name: 'jac-source-mapper',
     enforce: 'pre',
 
-    // Extract source mapping from compiled files
+    // Extract source mapping and chain per-file source maps
     transform(code, id) {{
       if (id.includes('/compiled/') && id.endsWith('.js')) {{
         const match = code.match(/^\\/\\* Source: (.+?) \\*\\//);
         if (match) {{
           sourceMap.set(id, match[1]);
         }}
+        // Load per-file .map if it exists and return it so Vite chains it
+        const mapPath = id + '.map';
+        try {{
+          if (fs.existsSync(mapPath)) {{
+            const rawMap = JSON.parse(fs.readFileSync(mapPath, 'utf-8'));
+            return {{ code, map: rawMap }};
+          }}
+        }} catch (e) {{}}
       }}
       return null;
     }},
@@ -654,7 +663,7 @@ impl ViteBundler._has_typescript_support(self: ViteBundler) -> bool {
 impl ViteBundler.read_bundle(self: ViteBundler) -> tuple[str, str] {
     bundle_file = self.find_bundle();
     if not bundle_file {
-        raise ClientBundleError('Vite build completed but no bundle file found') ;
+        raise ClientBundleError('Vite build completed but no bundle file found');
     }
     bundle_code = bundle_file.read_text(encoding='utf-8');
     bundle_hash = hashlib.sha256(bundle_code.encode('utf-8')).hexdigest();
@@ -685,14 +694,14 @@ impl ViteBundler.build(self: ViteBundler, entry_file: Optional[Path] = None) -> 
     if not ensure_bun_available() {
         raise ClientBundleError(
             'Bun is required. Install manually: https://bun.sh'
-        ) from None ;
+        ) from None;
     }
     # Ensure client npm deps are configured; prompt to install defaults if missing
     if not ensure_client_deps(self.config_loader) {
         raise ClientBundleError(
             'Client dependencies not configured. Add [dependencies.npm] to jac.toml '
             'or create a project with: jac create --use client'
-        ) from None ;
+        ) from None;
     }
     self.output_dir.mkdir(parents=True, exist_ok=True);
     # Always regenerate package.json to pick up any dependency changes
@@ -734,14 +743,14 @@ impl ViteBundler.build(self: ViteBundler, entry_file: Optional[Path] = None) -> 
                 if result.returncode != 0 {
                     error_output = result.stderr or result.stdout;
                     error_msg = f"Dependency installation failed after {elapsed:.1f}s\n\n{error_output}\nCommand: bun install";
-                    raise ClientBundleError(error_msg) from None ;
+                    raise ClientBundleError(error_msg) from None;
                 }
                 console.print(f"\n  ✔ Dependencies installed ({elapsed:.1f}s)");
             } except FileNotFoundError {
                 # This shouldn't happen since we check for bun at the start
                 raise ClientBundleError(
                     'Bun command not found. Install Bun: https://bun.sh'
-                ) from None ;
+                ) from None;
             }
         }
         if self.config_path {
@@ -780,7 +789,7 @@ impl ViteBundler.build(self: ViteBundler, entry_file: Optional[Path] = None) -> 
             error_msg = f"Vite build failed after {elapsed:.1f}s\n\n{error_output}\nCommand: {' '.join(
                 command
             )}";
-            raise ClientBundleError(error_msg) from None ;
+            raise ClientBundleError(error_msg) from None;
         }
         console.print(f"\n  ✔ Client bundle built ({elapsed:.1f}s)");
     } finally {
@@ -922,7 +931,16 @@ def _toml_config_to_js(config_name: str, config_data: dict) -> str {
 
 """Build the Vite dev server command."""
 def _build_vite_dev_command(config_rel: Path, port: int) -> list[str] {
-    return ['bun', 'x', 'vite', '--config', str(config_rel), '--port', str(port)];
+    return [
+        'bun',
+        'x',
+        'vite',
+        '--config',
+        str(config_rel),
+        '--port',
+        str(port),
+        '--host'
+    ];
 }
 
 """Check if a line indicates Vite server is ready."""
@@ -994,7 +1012,7 @@ impl ViteBundler.start_dev_server(
     if not ensure_bun_available() {
         raise ClientBundleError(
             'Bun is required for dev server. Install manually: https://bun.sh'
-        ) from None ;
+        ) from None;
     }
     build_dir = self._get_client_dir();
     self._ensure_dev_index_html(build_dir);
@@ -1004,7 +1022,7 @@ impl ViteBundler.start_dev_server(
     if not dev_config.exists() {
         raise ClientBundleError(
             "Dev config not found. Call create_vite_config(is_dev=True) first."
-        ) ;
+        );
     }
     try {
         config_rel = dev_config.relative_to(build_dir);
@@ -1099,7 +1117,7 @@ impl ViteBundler._ensure_dev_dependencies(self: ViteBundler, build_dir: Path) ->
 
         if result.returncode != 0 {
             console.error(f"\n  ✖ bun install failed after {elapsed:.1f}s");
-            raise ClientBundleError("Failed to install dependencies") ;
+            raise ClientBundleError("Failed to install dependencies");
         }
         console.print(f"\n  ✔ Dependencies installed ({elapsed:.1f}s)");
     } finally {

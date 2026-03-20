@@ -1,12 +1,12 @@
 """Implementation for MTP constructs."""
 
 """Convert to runtime context."""
-@ property
-impl MTIR.runtime(self: MTIR) -> MTRuntime {
+@property
+impl MTIR.runtime -> MTRuntime {
     return MTRuntime.factory(self.caller, self.args, self.call_params);
 }
 
-impl ClassInfo.postinit(self: ClassInfo) -> object {
+impl ClassInfo.postinit -> object {
     if (self.fields is None) {
         self.fields = [];
     }
@@ -18,7 +18,7 @@ impl ClassInfo.postinit(self: ClassInfo) -> object {
     }
 }
 
-impl FunctionInfo.postinit(self: FunctionInfo) -> object {
+impl FunctionInfo.postinit -> object {
     if (self.params is None) {
         self.params = [];
     }

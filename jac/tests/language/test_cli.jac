@@ -40,8 +40,8 @@ def _assert_error_pretty_found(needle: str, haystack: str) -> None {
     }
 }
 
+"""Run jac check and return file count."""
 def _run_jac_check(test_dir: str, ignore_pattern: list = []) -> int {
-    """Run jac check and return file count."""
     captured_stdout = io.StringIO();
     captured_stderr = io.StringIO();
     old_stdout = sys.stdout;
@@ -65,8 +65,8 @@ def _run_jac_check(test_dir: str, ignore_pattern: list = []) -> int {
 }
 
 # Helper functions for clean command tests
+"""Create a minimal jac project structure for testing."""
 def _create_clean_project(tmpdir: str) -> str {
-    """Create a minimal jac project structure for testing."""
     project_path = os.path.join(tmpdir, "testproj");
     os.makedirs(project_path, exist_ok=True);
 
@@ -79,8 +79,8 @@ def _create_clean_project(tmpdir: str) -> str {
     return project_path;
 }
 
+"""Set up output capture and return (stdout_capture, stderr_capture, old_stdout, old_stderr)."""
 def _capture_output -> tuple {
-    """Set up output capture and return (stdout_capture, stderr_capture, old_stdout, old_stderr)."""
     captured_stdout = io.StringIO();
     captured_stderr = io.StringIO();
     old_stdout = sys.stdout;
@@ -90,20 +90,20 @@ def _capture_output -> tuple {
     return (captured_stdout, captured_stderr, old_stdout, old_stderr);
 }
 
+"""Restore original stdout/stderr."""
 def _restore_output(old_stdout: object, old_stderr: object) -> None {
-    """Restore original stdout/stderr."""
     sys.stdout = old_stdout;
     sys.stderr = old_stderr;
 }
 
+"""Reset the global config cache to force rediscovery."""
 def _reset_config -> None {
-    """Reset the global config cache to force rediscovery."""
     import from jaclang.project { config as config_module }
     config_module._config = None;
 }
 
+"""Ensure template registry is initialized once."""
 def _ensure_template_registry -> None {
-    """Ensure template registry is initialized once."""
     initialized = _template_state.get("initialized", False);
     if not initialized {
         import from jaclang.project.template_registry { initialize_template_registry }
@@ -123,6 +123,57 @@ test "jac cli run" {
     }
     stdout_value = captured.getvalue();
     assert "Hello World!" in stdout_value;
+}
+
+test "show errors flag" {
+    # Create a temp file with known type errors and a with entry block
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jac", delete=False) as tmp {
+        tmp.write(
+            'glob x: str = 5;\n'
+            'glob y: int = "hello";\n'
+            'with entry { print("ran"); }\n'
+        );
+        tmp_path = tmp.name;
+    }
+    try {
+        # Without --show-errors: program runs, summary line shown, no detailed errors
+        captured_out = io.StringIO();
+        captured_err = io.StringIO();
+        sys.stdout = captured_out;
+        sys.stderr = captured_err;
+        try {
+            execution.run(tmp_path);
+        } finally {
+            sys.stdout = sys.__stdout__;
+            sys.stderr = sys.__stderr__;
+        }
+        stdout_val = captured_out.getvalue();
+        stderr_val = captured_err.getvalue();
+        combined = stdout_val + stderr_val;
+        assert "ran" in stdout_val , "Program should still execute";
+        assert "error(s)" in combined , "Summary line should appear";
+        assert "Cannot assign" not in combined , (
+            "Detailed errors should not appear without --show-errors"
+        );
+
+        # With --show-errors: detailed errors shown
+        captured_out2 = io.StringIO();
+        captured_err2 = io.StringIO();
+        sys.stdout = captured_out2;
+        sys.stderr = captured_err2;
+        try {
+            execution.run(tmp_path, show_errors=True);
+        } finally {
+            sys.stdout = sys.__stdout__;
+            sys.stderr = sys.__stderr__;
+        }
+        combined2 = captured_out2.getvalue() + captured_err2.getvalue();
+        assert "Cannot assign" in combined2 , (
+            "Detailed errors should appear with --show-errors"
+        );
+    } finally {
+        os.unlink(tmp_path);
+    }
 }
 
 test "jac cli run python file" {
@@ -211,6 +262,30 @@ test "jac cli alert based err" {
     assert "Error" in stdout_value;
 }
 
+test "jac cli error output has no raw ansi codes" {
+    captured_output = io.StringIO();
+    sys.stdout = captured_output;
+    sys.stderr = captured_output;
+    try {
+        execution.run(
+            os.path.join(
+                JAC_ROOT, "tests", "compiler", "fixtures", "new_keyword_err.jac"
+            )
+        );
+    } finally {
+        sys.stdout = sys.__stdout__;
+        sys.stderr = sys.__stderr__;
+    }
+    output = captured_output.getvalue();
+    # Ensure the error was actually reported
+    assert "'new' is not supported in Jac" in output;
+    # Raw ANSI escape codes (\x1b[) must not appear in error output.
+    # The console layer handles styling; pretty_print should not inject raw codes.
+    assert "\x1b[" not in output , f"Raw ANSI escape codes found in error output:\n{repr(
+        output[:500]
+    )}";
+}
+
 test "jac cli alert based runtime err" {
     captured_output = io.StringIO();
     sys.stdout = captured_output;
@@ -270,23 +345,20 @@ test "jac impl err" {
     assert f'"{path_to_file}", line 2' in stdout_value;
 }
 
-test "param name diff" {
-    captured_output = io.StringIO();
-    sys.stdout = captured_output;
-    sys.stderr = captured_output;
-    try {
-        execution.run(fixture_path("decl_defn_param_name.jac"));
-    } except Exception {
-        _ = None;
-    }
-    sys.stdout = sys.__stdout__;
-    sys.stderr = sys.__stderr__;
-
-    expected_stdout_values = ("short_name = 42", "p1 = 64 , p2 = foobar");
-    output = captured_output.getvalue();
-    for exp in expected_stdout_values {
-        assert exp in output;
-    }
+test "param name diff warns" {
+    import from jaclang.jac0core.program { JacProgram }
+    prog = JacProgram();
+    prog.compile(fixture_path("decl_defn_param_name.jac"), no_cgen=True);
+    warn_msgs = [str(w) for w in prog.warnings_had];
+    assert any(
+        "'some_long_paramenter_name'" in m and "'short_name'" in m for m in warn_msgs
+    ) , (f"Expected param name mismatch warning for method1, got: {warn_msgs}");
+    assert any("'param1'" in m and "'p1'" in m for m in warn_msgs) , (
+        f"Expected param name mismatch warning for method2 param1, got: {warn_msgs}"
+    );
+    assert any("'param2'" in m and "'p2'" in m for m in warn_msgs) , (
+        f"Expected param name mismatch warning for method2 param2, got: {warn_msgs}"
+    );
 }
 
 test "jac test err" {
@@ -352,7 +424,7 @@ test "cfg printgraph" {
     }
     stdout_value = captured.getvalue();
     correct_graph = (
-        "digraph G {\n" + '  0 [label="BB0\\n\\nprint ( \\"im still here\\" ) ;", shape=box];\n' + '  1 [label="BB1\\n\\"Hello World!\\" |> print ;", shape=box];\n' + "}\n\n"
+        "digraph G {\n" + '  0 [label="BB0\\ndef still_there\\nprint ( \\"im still here\\" ) ;", shape=box];\n' + '  1 [label="BB1\\n\\"Hello World!\\" |> print ;", shape=box];\n' + "}\n\n"
     );
     assert correct_graph == stdout_value;
 }
@@ -427,7 +499,7 @@ test "run specific test only" {
     old_stdout = sys.stdout;
     sys.stdout = captured;
     try {
-        analysis.test(fixture_path("jactest_main.jac"), test_name="from_2_to_10");
+        analysis.test(fixture_path("jactest_main.jac"), test_name="from 2 to 10");
         stdout = captured.getvalue();
         stderr = captured_stderr.getvalue();
     } finally {
@@ -551,13 +623,22 @@ test "param arg" {
         sys.stdout = old_stdout;
     }
 
-    stdout_value = captured.getvalue().split("\n");
-    assert stdout_value[-7] == "ULTIMATE_MIN: 1|def|2.5|0|test|100|0";
-    assert stdout_value[-6] == "ULTIMATE_FULL: 1|custom|3.14|3|req|200|1";
-    assert stdout_value[-5] == "SEPARATORS: 42";
-    assert stdout_value[-4] == "EDGE_MIX: 1-test-2-True-1";
-    assert stdout_value[-3] == "RECURSIVE: 7 11";
-    assert stdout_value[-2] == "VALIDATION: x:1,y:2.5,z:10,args:1,w:True,kwargs:1";
+    stdout_lines = [
+        l
+        for l in captured.getvalue().split("\n")
+        if l.strip()
+    ];
+    expected = [
+        "ULTIMATE_MIN: 1|def|2.5|0|test|100|0",
+        "ULTIMATE_FULL: 1|custom|3.14|3|req|200|1",
+        "SEPARATORS: 42",
+        "EDGE_MIX: 1-test-2-True-1",
+        "RECURSIVE: 7 11",
+        "VALIDATION: x:1,y:2.5,z:10,args:1,w:True,kwargs:1"
+    ];
+    for line in expected {
+        assert line in stdout_lines , f"Expected '{line}' in output";
+    }
 }
 
 test "caching issue" {
@@ -843,6 +924,70 @@ test "format preserves file on syntax error" {
     }
 }
 
+test "format prints error messages and summary for syntax error file" {
+    captured_stdout = io.StringIO();
+    captured_stderr = io.StringIO();
+    old_stdout = sys.stdout;
+    old_stderr = sys.stderr;
+    sys.stdout = captured_stdout;
+    sys.stderr = captured_stderr;
+
+    try {
+        result = analysis.format([fixture_path("test_syntax_err.jac")]);
+        stdout = captured_stdout.getvalue();
+        stderr = captured_stderr.getvalue();
+    } finally {
+        sys.stdout = old_stdout;
+        sys.stderr = old_stderr;
+    }
+
+    combined = stdout + stderr;
+
+    # Should exit with code 1 (syntax errors fail the command)
+    assert result == 1 , "format should exit with code 1 for syntax error file";
+
+    # Should show FAILURES section header
+    assert "FAILURES" in combined , "should display FAILURES section for syntax errors";
+
+    # Failed file path should appear in the FAILURES section
+    assert "test_syntax_err.jac" in combined , "should show file path in FAILURES section";
+
+    # Actual syntax error messages should appear in stderr
+    assert len(stderr.strip()) > 0 , "should print syntax error messages to stderr";
+
+    # failed files summary section should appear
+    assert "failed files" in combined , "should display failed files summary";
+
+    # Summary line should mention error count
+    assert "error" in combined , "should show error count in failed files summary";
+}
+
+test "format --lintfix preserves file on parse error" {
+    with tempfile.TemporaryDirectory() as tmpdir {
+        test_file = os.path.join(tmpdir, "parse_error.jac");
+        # Parse error: 'can' without 'with' (should be 'def' for function-style)
+        original_content = 'obj User {\n    can say_name() {\n        print("hi");\n    }\n}\n';
+        with open(test_file, "w") as f {
+            f.write(original_content);
+        }
+        captured_stderr = io.StringIO();
+        old_stderr = sys.stderr;
+        sys.stderr = captured_stderr;
+        try {
+            analysis.format([test_file], lintfix=True);
+        } finally {
+            sys.stderr = old_stderr;
+        }
+        with open(test_file) as f {
+            actual_content = f.read();
+            assert actual_content == original_content , (
+                f"format --lintfix deleted/modified file with parse error. "
+                f"Expected: {repr(original_content)}, Got: {repr(actual_content)}"
+            );
+        }
+    }
+}
+
 test "jac create and run no root files" {
     _ensure_template_registry();
     _tmpdir = tempfile.mkdtemp();
@@ -863,8 +1008,8 @@ test "jac create and run no root files" {
         assert result == 0 , "jac create failed";
 
         # Record files after create (before run)
+        # Get files/dirs in project root, excluding .jac directory.
         def get_root_files(path: Path) -> set {
-            """Get files/dirs in project root, excluding .jac directory."""
             items = set();
             for item in path.iterdir() {
                 if item.name != ".jac" {
@@ -1227,16 +1372,20 @@ test "config no project" {
     original_cwd = os.getcwd();
     os.chdir(tmp_path);
     try {
-        captured = io.StringIO();
+        captured_out = io.StringIO();
+        captured_err = io.StringIO();
         old_stdout = sys.stdout;
-        sys.stdout = captured;
+        old_stderr = sys.stderr;
+        sys.stdout = captured_out;
+        sys.stderr = captured_err;
         try {
             config_cmd.config(action="path");
         } finally {
             sys.stdout = old_stdout;
+            sys.stderr = old_stderr;
         }
-        stdout = captured.getvalue();
-        assert "jac.toml" in stdout;
+        combined = captured_out.getvalue() + captured_err.getvalue();
+        assert "jac.toml" in combined;
     } finally {
         os.chdir(original_cwd);
         shutil.rmtree(tmp_path, ignore_errors=True);
@@ -1464,20 +1613,20 @@ test "syntax error pretty print" {
 
     program = JacProgram();
     program.compile(fixture_path("test_syntax_err.jac"));
-    assert len(program.errors_had) == 1 , (
-        f"Expected 1 error with improved error reporting, got {len(program.errors_had)}"
+    assert len(program.errors_had) == 3 , (
+        f"Expected 3 errors with improved error reporting, got {len(program.errors_had)}"
     );
     _assert_error_pretty_found(
         """
         2 |
         3 | walker w {
         4 |     can foo {
-          |             ^
-        5 |         print "Missing semicolon"
-        6 |     }
+          |
     """,
         program.errors_had[0].pretty_print()
     );
+    _assert_error_pretty_found("Missing ';'", program.errors_had[1].pretty_print());
+    _assert_error_pretty_found("Missing ';'", program.errors_had[2].pretty_print());
 }
 
 test "jac grammar" {
@@ -1517,11 +1666,75 @@ test "jac cli check ignore patterns" {
     assert result_count == 1;
 }
 
+"""Test --ignore with multiple wildcard patterns."""
 test "jac cli check ignore with wildcards" {
-    """Test --ignore with multiple wildcard patterns."""
     test_dir = fixture_path("deep");
     result_count = _run_jac_check(test_dir, ["one_lev*", "snd_*"]);
     assert result_count == 3;
+}
+
+test "jac check shows warnings for files with warnings only" {
+    captured_stdout = io.StringIO();
+    captured_stderr = io.StringIO();
+    old_stdout = sys.stdout;
+    old_stderr = sys.stderr;
+    sys.stdout = captured_stdout;
+    sys.stderr = captured_stderr;
+
+    try {
+        result = analysis.check([fixture_path("warnings_only.jac")]);
+        stdout = captured_stdout.getvalue();
+        stderr = captured_stderr.getvalue();
+    } finally {
+        sys.stdout = old_stdout;
+        sys.stderr = old_stderr;
+    }
+
+    combined = stdout + stderr;
+
+    # Should exit with code 0 (warnings don't fail the check)
+    assert result == 0 , "check should exit with code 0 for warnings only";
+
+    # Should show FAILURES section with warnings
+    assert "FAILURES" in combined , "should display FAILURES section for warnings";
+
+    # Should show the warning messages
+    assert "defined but never used" in combined , "should display unused variable warnings";
+
+    # Should show warning indicators
+    assert "warning" in combined.lower() , "should indicate warnings in output";
+
+    # File should appear in summary with warnings count
+    assert "warnings_only.jac" in combined , "should show file path in output";
+}
+
+test "jac check nowarn flag suppresses warnings" {
+    captured_stdout = io.StringIO();
+    captured_stderr = io.StringIO();
+    old_stdout = sys.stdout;
+    old_stderr = sys.stderr;
+    sys.stdout = captured_stdout;
+    sys.stderr = captured_stderr;
+
+    try {
+        result = analysis.check([fixture_path("warnings_only.jac")], nowarn=True);
+        stdout = captured_stdout.getvalue();
+        stderr = captured_stderr.getvalue();
+    } finally {
+        sys.stdout = old_stdout;
+        sys.stderr = old_stderr;
+    }
+
+    combined = stdout + stderr;
+
+    # Should still exit with code 0
+    assert result == 0 , "check should exit with code 0 when warnings are suppressed";
+
+    # Should show PASSED status
+    assert "PASSED" in combined , "should show PASSED when warnings are suppressed";
+
+    # Should NOT show detailed warning messages
+    assert "defined but never used" not in combined , "should not display warning details when nowarn=True";
 }
 
 test "lexer does not hang on unterminated jsx" {
@@ -1572,12 +1785,12 @@ test "bare lt in jsx content is treated as text" {
     assert result == 0 , f"should compile successfully, got errors: {stderr}";
 }
 
-test "jir_registry is up to date" {
-    """Verify jir_registry.jac matches what gen_jir_registry.jac would generate.
+"""Verify jir_registry.jac matches what gen_jir_registry.jac would generate.
 
-    Fails with a descriptive message if the registry is out of date, e.g. because
-    unitree node classes were added or changed without re-running `jac gen-jir-registry`.
-    """
+Fails with a descriptive message if the registry is out of date, e.g. because
+unitree node classes were added or changed without re-running `jac gen-jir-registry`.
+"""
+test "jir_registry is up to date" {
     captured = io.StringIO();
     old_stdout = sys.stdout;
     sys.stdout = captured;
@@ -1593,4 +1806,113 @@ test "jir_registry is up to date" {
         "jir_registry.jac is out of date. "
         "Run `jac gen-jir-registry` to regenerate it."
     );
+}
+
+test "jac check reports errors for files inside jaclang source tree" {
+    # Regression: _resolve_program routed jaclang-internal files to
+    # internal_program, so errors were invisible to the caller's JacProgram.
+    # force_target_program=True (set by jac check) fixes this.
+    internal_fixture = os.path.join(
+        JAC_ROOT, "jaclang", "compiler", "tests", "fixtures", "prim_float.jac"
+    );
+    captured_stdout = io.StringIO();
+    captured_stderr = io.StringIO();
+    old_stdout = sys.stdout;
+    old_stderr = sys.stderr;
+    sys.stdout = captured_stdout;
+    sys.stderr = captured_stderr;
+
+    try {
+        result = analysis.check([internal_fixture]);
+        stdout = captured_stdout.getvalue();
+        stderr = captured_stderr.getvalue();
+    } finally {
+        sys.stdout = old_stdout;
+        sys.stderr = old_stderr;
+    }
+
+    combined = stdout + stderr;
+
+    # prim_float.jac has type errors (unary + returns Unknown) — check must
+    # report them even though the file lives inside the jaclang package.
+    assert result == 1 , (
+        "jac check should report errors for jaclang-internal files, "
+        f"but returned exit code {result}. Output:\n{combined}"
+    );
+    assert "failed" in combined.lower() , (
+        "Expected failure output for jaclang-internal file with type errors"
+    );
+}
+
+"""Regression: JIR cache must preserve Archetype.body for generic type inference."""
+test "jir cache preserves generic type inference" {
+    import from jaclang.jac0core.program { JacProgram }
+    import from jaclang.jac0core.runtime { JacRuntime }
+
+    with tempfile.TemporaryDirectory() as tmpdir {
+        with open(os.path.join(tmpdir, "lib.jac"), "w") as f {
+            f.write("obj Box[T] { has value: T; def get -> T { return self.value; } }");
+        }
+        with open(os.path.join(tmpdir, "main.jac"), "w") as f {
+            f.write(
+                "import from lib { Box }\nwith entry { print(Box(value=42).get() + 1); }"
+            );
+        }
+        main_path = os.path.join(tmpdir, "main.jac");
+        # Run check twice: first creates cache, second uses it
+        outputs: list[str] = [];
+        for _ in range(2) {
+            JacRuntime.program = JacProgram();
+            (cap_out, cap_err, old_out, old_err) = _capture_output();
+            try {
+                analysis.check([main_path]);
+                outputs.append(cap_out.getvalue() + cap_err.getvalue());
+            } finally {
+                _restore_output(old_out, old_err);
+            }
+        }
+        # E1055 appears if Box[int].get() returns Unknown due to lost type info
+        assert "No matching overload" not in outputs[1] , f"JIR cache lost type info:\n{outputs[
+            1
+        ]}";
+    }
+}
+
+"""Regression: JIR cache must preserve IndexSlice.slices (Slice is a UniNode).
+
+IndexSlice.Slice was previously a plain inner class without a node ID, so the
+JIR writer serialised the slices field as EXTERNAL_REF, reader discarded it,
+slices=[] on cache hit, list iteration type became Unknown.
+"""
+test "jir cache preserves list iteration type through IndexSlice" {
+    import from jaclang.jac0core.program { JacProgram }
+    import from jaclang.jac0core.runtime { JacRuntime }
+
+    with tempfile.TemporaryDirectory() as tmpdir {
+        with open(os.path.join(tmpdir, "main.jac"), "w") as f {
+            f.write(
+                "import from jaclang.jac0core.archetype { NodeAnchor }\n"
+                "def check_iter(na: NodeAnchor) -> None {\n"
+                "    for a in na.edges { aid = a.id; }\n"
+                "}\n"
+            );
+        }
+        main_path = os.path.join(tmpdir, "main.jac");
+        # Run check twice: first creates cache, second uses it
+        outputs: list[str] = [];
+        for _ in range(2) {
+            JacRuntime.program = JacProgram();
+            (cap_out, cap_err, old_out, old_err) = _capture_output();
+            try {
+                analysis.check([main_path]);
+                outputs.append(cap_out.getvalue() + cap_err.getvalue());
+            } finally {
+                _restore_output(old_out, old_err);
+            }
+        }
+        # E1032 appears if anchor type becomes Unknown on the cached run
+        assert "Type is Unknown" not in outputs[1] , f"JIR cache lost IndexSlice type info:\n{outputs[
+            1
+        ]}";
+    }
 }

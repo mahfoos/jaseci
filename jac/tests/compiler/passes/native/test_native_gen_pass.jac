@@ -11,13 +11,15 @@ import sys;
 import from pathlib { Path }
 import jaclang;
 import from jaclang.jac0core.program { JacProgram }
+import jaclang.jac0core.unitree as uni;
+import from llvmlite.binding { ExecutionEngine }
 
 glob FIXTURES = str(
          Path(jaclang.__file__).parent.parent / "tests" / "compiler" / "passes" / "native" / "fixtures"
      );
 
 """Compile a .na.jac fixture and return the JIT engine."""
-def compile_native(fixture: str) -> tuple {
+def compile_native(fixture: str) -> tuple[ExecutionEngine, uni.Module] {
     prog = JacProgram();
     ir = prog.compile(file_path=str(os.path.join(FIXTURES, fixture)));
     errors = [str(e) for e in prog.errors_had] if prog.errors_had else [];
@@ -28,7 +30,7 @@ def compile_native(fixture: str) -> tuple {
 }
 
 """Get a ctypes-callable function from the JIT engine."""
-def get_func(eng: object, name: str, restype: type, *argtypes: type) -> object {
+def get_func(eng: object, name: str, restype: type | None, *argtypes: type) -> object {
     addr = eng.get_function_address(name);
     assert addr != 0 , f"Function '{name}' not found in JIT engine";
     functype = ctypes.CFUNCTYPE(restype, *argtypes);
@@ -514,6 +516,35 @@ test "complex objects field append" {
     (eng, _) = compile_native("complex_objects.na.jac");
     f = get_func(eng, "test_field_append", ctypes.c_int64);
     assert f() == 3;
+}
+
+# --- TestNativeCrossModuleMethods ---
+# Regression tests for: _register_imported_archetype must forward-declare all
+# archetype methods so that method_funcs["Type.method"] is populated for
+# imported types.  Before the fix every cross-module method call was silently
+# dropped from the IR (value stayed null/0).
+test "cross-module method call once" {
+    (eng, _) = compile_native("na_method_import.na.jac");
+    f = get_func(eng, "test_imported_method_once", ctypes.c_int64);
+    assert f() == 1;
+}
+
+test "cross-module method call five times" {
+    (eng, _) = compile_native("na_method_import.na.jac");
+    f = get_func(eng, "test_imported_method_five", ctypes.c_int64);
+    assert f() == 5;
+}
+
+test "cross-module method call with argument" {
+    (eng, _) = compile_native("na_method_import.na.jac");
+    f = get_func(eng, "test_imported_method_with_arg", ctypes.c_int64);
+    assert f() == 10;
+}
+
+test "cross-module chained method calls" {
+    (eng, _) = compile_native("na_method_import.na.jac");
+    f = get_func(eng, "test_imported_chained_methods", ctypes.c_int64);
+    assert f() == 12;
 }
 
 # --- TestNativeBuiltins ---
@@ -1521,6 +1552,64 @@ test "cross module struct execution" {
     assert result2 == 7 , f"Expected 7, got {result2}";
 }
 
+# --- TestCrossModuleGlobalLinkage ---
+# Regression tests for: global-internal-linkage-breaks-cross-module
+# Before fix: module globals were emitted with LLVM `internal` linkage. The
+# linker renamed the definition (e.g. @MAGIC -> @MAGIC.467) when another module
+# declared it as `external`, leaving the external reference permanently null.
+# Any read then caused a null-pointer segfault (exit 134).
+# After fix: globals use default (public) linkage; the symbol resolves correctly.
+test "cross module global linkage compile" {
+    # Importing a module that directly reads globals from another .na.jac module
+    # must compile and JIT without errors.
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "na_glob_import.na.jac")));
+    assert not prog.errors_had , f"Errors: {prog.errors_had}";
+    assert ir is not None;
+    assert ir.gen.native_engine is not None , "No native engine created";
+}
+
+test "cross module global direct read" {
+    # read_magic() directly accesses the imported MAGIC global.
+    # With internal linkage this segfaulted; with public linkage it must return 42.
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "na_glob_import.na.jac")));
+    assert not prog.errors_had , f"Errors: {prog.errors_had}";
+    eng = ir.gen.native_engine;
+    assert eng is not None;
+    read_magic = get_func(eng, "read_magic", ctypes.c_int64);
+    result = read_magic();
+    assert result == 42 , f"Expected MAGIC==42, got {result}";
+}
+
+test "cross module global via function" {
+    # read_magic_via_func() delegates to get_magic() from the exporting module.
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "na_glob_import.na.jac")));
+    assert not prog.errors_had;
+    eng = ir.gen.native_engine;
+    assert eng is not None;
+    read_via_func = get_func(eng, "read_magic_via_func", ctypes.c_int64);
+    result = read_via_func();
+    assert result == 42 , f"Expected 42 via get_magic(), got {result}";
+}
+
+test "cross module global arithmetic" {
+    # sum_globals() reads both MAGIC and BASE from the exporting module and adds
+    # them; read_base_plus(n) delegates to add_base(n).
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "na_glob_import.na.jac")));
+    assert not prog.errors_had;
+    eng = ir.gen.native_engine;
+    assert eng is not None;
+    sum_g = get_func(eng, "sum_globals", ctypes.c_int64);
+    result = sum_g();
+    assert result == 142 , f"Expected MAGIC+BASE==142, got {result}";
+    add_b = get_func(eng, "read_base_plus", ctypes.c_int64, ctypes.c_int64);
+    result2 = add_b(5);
+    assert result2 == 105 , f"Expected BASE+5==105, got {result2}";
+}
+
 # --- TestNativeCacheMarker ---
 test "cache marker non native file has no llvmir section in jir" {
     # Compiling a file without na blocks should NOT write SEC_LLVM_IR into the JIR cache.
@@ -1565,7 +1654,7 @@ test "cache marker non native file has no llvmir section in jir" {
         );
     } except Exception as e {
         os.unlink(jac_file);
-        raise ;
+        raise;
     }
     os.unlink(jac_file);
 }
@@ -1776,6 +1865,40 @@ test "dicts dict delete keyword" {
     assert f() == 1;  # key must be absent after del d[k]
 }
 
+test "dicts dict.get found" {
+    (eng, _) = compile_native("dicts_sets.na.jac");
+    f = get_func(eng, "dict_get_found", ctypes.c_int64);
+    assert f() == 10 , f"Expected 10, got {f()}";
+}
+
+test "dicts dict.get not found" {
+    (eng, _) = compile_native("dicts_sets.na.jac");
+    f = get_func(eng, "dict_get_notfound", ctypes.c_int64);
+    assert f() == -99 , f"Expected -99, got {f()}";
+}
+
+test "dicts dict.get no default" {
+    (eng, _) = compile_native("dicts_sets.na.jac");
+    f = get_func(eng, "dict_get_no_default", ctypes.c_int64);
+    assert f() == 100 , f"Expected 100, got {f()}";
+}
+
+test "dicts global dict.get method" {
+    (eng, _) = compile_native("dicts_sets.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "global_dict_get_method", ctypes.c_int64);
+    assert f() == 200 , f"Expected 200, got {f()}";
+}
+
+test "dicts global dict.get not found method" {
+    (eng, _) = compile_native("dicts_sets.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "global_dict_get_notfound_method", ctypes.c_int64);
+    assert f() == -42 , f"Expected -42, got {f()}";
+}
+
 test "dicts for-in-dict param iteration" {
     # for k in d where d is a dict parameter was always elided (body never ran).
     (eng, _) = compile_native("dicts_sets.na.jac");
@@ -1805,7 +1928,7 @@ glob CHESS_JAC = str(
      );
 
 """Compile a regular .jac file with auto-promotion and return the engine."""
-def compile_auto_native(file_path: str) -> tuple {
+def compile_auto_native(file_path: str) -> tuple[uni.Module, JacProgram] {
     prog = JacProgram();
     prog._auto_promote_native = True;
     prog._auto_promote_target = os.path.abspath(file_path);
@@ -1818,9 +1941,7 @@ def compile_auto_native(file_path: str) -> tuple {
 test "auto promote chess.jac detects native compatible" {
     (ir, _) = compile_auto_native(CHESS_JAC);
     assert ir is not None;
-    assert ir.gen._auto_promoted_native , (
-        "chess.jac should be auto-promoted to native"
-    );
+    assert ir.gen.native_compat , ("chess.jac should be auto-promoted to native");
     assert ir.gen.native_engine is not None , (
         "Auto-promoted chess.jac should have a native engine"
     );
@@ -1829,6 +1950,7 @@ test "auto promote chess.jac detects native compatible" {
 test "auto promote chess.jac has entry and key functions" {
     (ir, _) = compile_auto_native(CHESS_JAC);
     eng = ir.gen.native_engine;
+    assert eng is not None;
     # jac_entry must exist
     assert eng.get_function_address("jac_entry") != 0;
     # Key game functions must be present
@@ -1962,4 +2084,670 @@ test "sys argv via nacompile" {
             f"DONE should not appear after sys.exit()\nstdout: {exit_result.stdout}"
         );
     }
+}
+
+# --- TestNativeListBugs ---
+test "list_bugs pop local removes element" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    f = get_func(eng, "pop_and_len", ctypes.c_int64);
+    assert f() == 2;
+}
+
+test "list_bugs pop local returns last value" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    f = get_func(eng, "pop_value", ctypes.c_int64);
+    assert f() == 30;
+}
+
+test "list_bugs pop loop drains list" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    f = get_func(eng, "pop_loop", ctypes.c_int64);
+    assert f() == 3;
+}
+
+test "list_bugs pop global removes element" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "pop_global_len", ctypes.c_int64);
+    assert f() == 2;
+}
+
+test "list_bugs obj list field access" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    f = get_func(eng, "obj_list_field", ctypes.c_int64);
+    assert f() == 42;
+}
+
+test "list_bugs obj list two items" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    f = get_func(eng, "obj_list_two_items", ctypes.c_int64);
+    assert f() == 40;
+}
+
+test "list_bugs obj global list" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "obj_global_list", ctypes.c_int64);
+    assert f() == 100;
+}
+
+test "list_bugs reassign int list with empty literal" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "reassign_int_list", ctypes.c_int64);
+    assert f() == 99;
+}
+
+test "list_bugs reassign str list with empty literal" {
+    (eng, _) = compile_native("list_bugs.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "reassign_str_list", ctypes.c_int64);
+    assert f() == 1;
+}
+
+# --- String Enum Tests ---
+test "string_enums ordinal red" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "color_ordinal_red", ctypes.c_int64);
+    assert f() == 0 , f"Color.RED ordinal should be 0, got {f()}";
+}
+
+test "string_enums ordinal blue" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "color_ordinal_blue", ctypes.c_int64);
+    assert f() == 2 , f"Color.BLUE ordinal should be 2, got {f()}";
+}
+
+test "string_enums comparison" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "color_cmp", ctypes.c_int64, ctypes.c_int64);
+    assert f(0) == 10 , f"color_cmp(RED=0) should be 10";
+    assert f(1) == 20 , f"color_cmp(GREEN=1) should be 20";
+    assert f(2) == 30 , f"color_cmp(BLUE=2) should be 30";
+}
+
+test "string_enums value access" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "color_value", ctypes.c_char_p, ctypes.c_int64);
+    assert f(0) == b"red" , f"Color.RED.value should be 'red', got {f(0)}";
+    assert f(1) == b"green" , f"Color.GREEN.value should be 'green'";
+    assert f(2) == b"blue" , f"Color.BLUE.value should be 'blue'";
+}
+
+test "string_enums name access" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "color_name", ctypes.c_char_p, ctypes.c_int64);
+    assert f(0) == b"RED" , f"Color.RED.name should be 'RED', got {f(0)}";
+    assert f(1) == b"GREEN" , f"Color.GREEN.name should be 'GREEN'";
+    assert f(2) == b"BLUE" , f"Color.BLUE.name should be 'BLUE'";
+}
+
+test "string_enums direction value" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "direction_value", ctypes.c_char_p, ctypes.c_int64);
+    assert f(0) == b"N" , f"Direction.NORTH.value should be 'N'";
+    assert f(1) == b"S" , f"Direction.SOUTH.value should be 'S'";
+}
+
+test "string_enums int enum still works" {
+    (eng, _) = compile_native("string_enums.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "int_enum_still_works", ctypes.c_int64);
+    assert f() == 2 , f"Priority.HIGH should be 2, got {f()}";
+}
+
+# --- Cross-Module Enum Import Tests ---
+test "enum_import compiles" {
+    (eng, _) = compile_native("na_enum_import.na.jac");
+    assert eng is not None;
+}
+
+test "enum_import enum comparison" {
+    (eng, _) = compile_native("na_enum_import.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "use_imported_enum", ctypes.c_int64);
+    assert f() == 1 , f"TokenKind.KW_IF == TokenKind.KW_IF should return 1";
+}
+
+test "enum_import ordinal" {
+    (eng, _) = compile_native("na_enum_import.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "imported_enum_ordinals", ctypes.c_int64);
+    # TokenKind.EOF is the last member (ordinal 6)
+    assert f() == 6 , f"TokenKind.EOF ordinal should be 6, got {f()}";
+}
+
+test "enum_import value access" {
+    (eng, _) = compile_native("na_enum_import.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "imported_enum_value", ctypes.c_char_p);
+    assert f() == b"+" , f"TokenKind.PLUS.value should be '+', got {f()}";
+}
+
+test "enum_import cross module function call" {
+    (eng, _) = compile_native("na_enum_import.na.jac");
+    # Call both entry functions (imported module needs its globals initialized)
+    renamed_entry_addr = eng.get_function_address("__jac_entry_na_enum_export_na");
+    if renamed_entry_addr {
+        renamed_entry = ctypes.CFUNCTYPE(None)(renamed_entry_addr);
+        renamed_entry();
+    }
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "check_if_keyword", ctypes.c_int64);
+    r = f();
+    assert r == 3 , f"Expected 3 (KW_IF ordinal), got {r}";
+    f2 = get_func(eng, "check_else_keyword", ctypes.c_int64);
+    r2 = f2();
+    assert r2 == 4 , f"Expected 4 (KW_ELSE ordinal), got {r2}";
+    f3 = get_func(eng, "check_unknown_keyword", ctypes.c_int64);
+    r3 = f3();
+    assert r3 == -1 , f"Expected -1 (not found), got {r3}";
+}
+
+# --- Switch statement tests ---
+test "switch int match" {
+    (eng, _ir) = compile_native("switch_stmt.na.jac");
+    entry = get_func(eng, "jac_entry", None);
+    entry();
+    f = get_func(eng, "switch_int", ctypes.c_int64, ctypes.c_int64);
+    assert f(1) == 10 , f"switch_int(1) should be 10, got {f(1)}";
+    assert f(2) == 20 , f"switch_int(2) should be 20, got {f(2)}";
+    assert f(3) == 30 , f"switch_int(3) should be 30, got {f(3)}";
+    assert f(99) == -1 , f"switch_int(99) should be -1 (default), got {f(99)}";
+}
+
+test "switch enum" {
+    (eng, _ir) = compile_native("switch_stmt.na.jac");
+    entry = get_func(eng, "jac_entry", None);
+    entry();
+    f = get_func(eng, "switch_enum", ctypes.c_int64, ctypes.c_int64);
+    assert f(0) == 100 , f"switch_enum(RED=0) should be 100, got {f(0)}";
+    assert f(1) == 200 , f"switch_enum(GREEN=1) should be 200, got {f(1)}";
+    assert f(2) == 300 , f"switch_enum(BLUE=2) should be 300, got {f(2)}";
+}
+
+test "switch string" {
+    (eng, _ir) = compile_native("switch_stmt.na.jac");
+    entry = get_func(eng, "jac_entry", None);
+    entry();
+    f = get_func(eng, "switch_str", ctypes.c_int64, ctypes.c_char_p);
+    assert f(b"(") == 1 , f"switch_str('(') should be 1, got {f(b'(')}";
+    assert f(b")") == 2 , f"switch_str(')') should be 2, got {f(b')')}";
+    assert f(b"{") == 3;
+    assert f(b"}") == 4;
+    assert f(b"x") == 0 , f"switch_str('x') should be 0 (default), got {f(b'x')}";
+}
+
+test "switch no default" {
+    (eng, _ir) = compile_native("switch_stmt.na.jac");
+    entry = get_func(eng, "jac_entry", None);
+    entry();
+    f = get_func(eng, "switch_no_default", ctypes.c_int64, ctypes.c_int64);
+    assert f(10) == 100 , f"switch_no_default(10) should be 100, got {f(10)}";
+    assert f(20) == 200 , f"switch_no_default(20) should be 200, got {f(20)}";
+    assert f(99) == -1 , f"switch_no_default(99) should be -1 (unchanged), got {f(99)}";
+}
+
+# --- TestJIRBitcodeCaching ---
+test "jir bitcode cache round-trip" {
+    import struct;
+    import from jaclang.jac0core.compiler { JacCompiler }
+    import from jaclang.jac0core.jir {
+        get_module_cache_path,
+        SECTIONS_MAGIC,
+        HEADER_SIZE,
+        read_sections,
+        SEC_NATIVE_OBJ
+    }
+
+    compiler = JacCompiler();
+    fixture = str(os.path.join(FIXTURES, "arithmetic.na.jac"));
+
+    # Step 1: Compile via get_bytecode to populate JIR cache
+    prog1 = JacProgram();
+    code1 = compiler.get_bytecode(fixture, prog1);
+    assert code1 is not None , "get_bytecode should return code object";
+
+    # Step 2: Verify SEC_NATIVE_OBJ section exists in the cached JIR file
+    cache_path = get_module_cache_path(fixture);
+    assert cache_path.exists() , f"JIR cache file should exist at {cache_path}";
+    jir_data = cache_path.read_bytes();
+    magic: bytes = SECTIONS_MAGIC;
+    pos = jir_data.find(magic, HEADER_SIZE);
+    assert pos >= 0 , "JIR file should contain SECTIONS_MAGIC";
+    secs = read_sections(jir_data, pos + len(magic));
+    assert SEC_NATIVE_OBJ in secs , f"JIR should contain SEC_NATIVE_OBJ, got sections: {list(
+        secs.keys()
+    )}";
+
+    # Step 3: Verify platform header in SEC_NATIVE_OBJ
+    sec_data = secs[SEC_NATIVE_OBJ];
+    assert len(sec_data) > 2 , "SEC_NATIVE_OBJ too short";
+    (triple_len, ) = struct.unpack_from('<H', sec_data, 0);
+    cached_triple = sec_data[2:2 + triple_len].decode('utf-8');
+    import llvmlite.binding as llvm;
+    assert cached_triple == llvm.get_default_triple() , (
+        f"Triple mismatch: {cached_triple} != {llvm.get_default_triple()}"
+    );
+    bitcode_size = len(sec_data) - 2 - triple_len;
+    assert bitcode_size > 0 , "Bitcode should not be empty";
+
+    # Step 4: Load from cache with a fresh compiler and call native function
+    compiler2 = JacCompiler();
+    prog2 = JacProgram();
+    code2 = compiler2.get_bytecode(fixture, prog2);
+    assert code2 is not None , "Cache reload should return code object";
+
+    # Step 5: Verify native engine was restored via get_native_interop_setup
+    (engine, _) = compiler2.get_native_interop_setup(fixture, prog2);
+    assert engine is not None , "Native engine should be restored from bitcode cache";
+    add = get_func(engine, "add", ctypes.c_int64, ctypes.c_int64, ctypes.c_int64);
+    assert add(17, 25) == 42 , f"add(17,25) via cached engine should be 42, got {add(
+        17, 25
+    )}";
+}
+
+# --- CType struct contract: layout metadata and field types ---
+test "struct layout exports correct field types" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    layout = ir.gen.native_layout;
+    assert layout is not None , "Native layout should be exported";
+    assert "AllFields" in layout.structs , "AllFields struct should be in layout";
+    af = layout.structs["AllFields"];
+    field_map = {f.name: f for f in af.fields};
+    assert field_map["x"].llvm_type == "i64";
+    assert field_map["y"].llvm_type == "f64";
+    assert field_map["name"].llvm_type == "i8*";
+    assert field_map["flag"].llvm_type == "i1";
+    assert field_map["items"].llvm_type.startswith("List.");
+}
+
+test "struct layout tracks field indices correctly" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    layout = ir.gen.native_layout;
+    assert layout is not None;
+    af = layout.structs["AllFields"];
+    indices = [f.index for f in af.fields];
+    # Indices should be consecutive starting from 0
+    assert indices == list(range(len(af.fields)));
+}
+
+test "optional field compiles to pointer type" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    layout = ir.gen.native_layout;
+    assert layout is not None;
+    assert "MaybePoint" in layout.structs;
+    mp = layout.structs["MaybePoint"];
+    field_map = {f.name: f for f in mp.fields};
+    assert field_map["x"].llvm_type == "i64";
+    assert field_map["y"].llvm_type == "i64";
+    # label is str|None → still i8* (pointers are nullable)
+    assert field_map["label"].llvm_type == "i8*";
+}
+
+test "all_fields struct round-trip via ctypes" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    make = get_func(
+        eng,
+        "make_all_fields",
+        ctypes.c_void_p,
+        ctypes.c_int64,
+        ctypes.c_double,
+        ctypes.c_char_p
+    );
+    get_x = get_func(eng, "get_all_fields_x", ctypes.c_int64, ctypes.c_void_p);
+    ptr = make(42, 3.14, b"hello");
+    assert ptr != 0;
+    assert get_x(ptr) == 42;
+}
+
+test "all_fields bool field round-trip" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    make = get_func(
+        eng,
+        "make_all_fields",
+        ctypes.c_void_p,
+        ctypes.c_int64,
+        ctypes.c_double,
+        ctypes.c_char_p
+    );
+    get_flag = get_func(eng, "get_all_fields_flag", ctypes.c_bool, ctypes.c_void_p);
+    ptr = make(1, 2.0, b"test");
+    assert get_flag(ptr) == True;
+}
+
+test "maybe_point struct round-trip" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    make = get_func(
+        eng, "make_maybe_point", ctypes.c_void_p, ctypes.c_int64, ctypes.c_int64
+    );
+    get_x = get_func(eng, "get_maybe_x", ctypes.c_int64, ctypes.c_void_p);
+    ptr = make(10, 20);
+    assert ptr != 0;
+    assert get_x(ptr) == 10;
+}
+
+test "NativeFieldInfo func_ptr defaults to False" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    layout = ir.gen.native_layout;
+    assert layout is not None;
+    af = layout.structs["AllFields"];
+    for f in af.fields {
+        assert f.is_func_ptr == False , f"Field {f.name} should not be func_ptr";
+        assert f.func_param_types is None;
+        assert f.func_ret_type is None;
+    }
+}
+
+test "function layout exports param and return types" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    layout = ir.gen.native_layout;
+    assert layout is not None;
+    assert "add" in layout.functions;
+    add_layout = layout.functions["add"];
+    assert add_layout.param_types == ["i64", "i64"];
+    assert add_layout.ret_type == "i64";
+}
+
+test "layout exports all expected functions" {
+    (eng, ir) = compile_native("func_ptr_fields.na.jac");
+    layout = ir.gen.native_layout;
+    assert layout is not None;
+    expected = {"add","mul","negate","identity","make_all_fields","get_all_fields_x","get_all_fields_flag","make_maybe_point","get_maybe_x"};
+    assert expected == set(layout.functions.keys());
+}
+
+# --- Jac-to-Jac function pointer tests (Callable[[...], ret] type annotation) ---
+test "fnptr apply2 with add" {
+    (eng, _) = compile_native("fnptr_jac.na.jac");
+    apply2 = get_func(
+        eng, "apply2", ctypes.c_int64, ctypes.c_int64, ctypes.c_int64, ctypes.c_int64
+    );
+    add_addr = eng.get_function_address("add");
+    assert apply2(add_addr, 3, 4) == 7;
+    assert apply2(add_addr, 0, 0) == 0;
+    assert apply2(add_addr, -1, 1) == 0;
+}
+
+test "fnptr apply2 with mul" {
+    (eng, _) = compile_native("fnptr_jac.na.jac");
+    apply2 = get_func(
+        eng, "apply2", ctypes.c_int64, ctypes.c_int64, ctypes.c_int64, ctypes.c_int64
+    );
+    mul_addr = eng.get_function_address("mul");
+    assert apply2(mul_addr, 3, 4) == 12;
+    assert apply2(mul_addr, 0, 99) == 0;
+    assert apply2(mul_addr, -2, 5) == -10;
+}
+
+test "fnptr apply1 with negate" {
+    (eng, _) = compile_native("fnptr_jac.na.jac");
+    apply1 = get_func(eng, "apply1", ctypes.c_int64, ctypes.c_int64, ctypes.c_int64);
+    neg_addr = eng.get_function_address("negate");
+    assert apply1(neg_addr, 5) == -5;
+    assert apply1(neg_addr, 0) == 0;
+    assert apply1(neg_addr, -3) == 3;
+}
+
+test "fnptr call_via_local stores and calls pointer" {
+    (eng, _) = compile_native("fnptr_jac.na.jac");
+    call_via_local = get_func(
+        eng,
+        "call_via_local",
+        ctypes.c_int64,
+        ctypes.c_int64,
+        ctypes.c_int64,
+        ctypes.c_int64
+    );
+    add_addr = eng.get_function_address("add");
+    mul_addr = eng.get_function_address("mul");
+    assert call_via_local(add_addr, 6, 7) == 13;
+    assert call_via_local(mul_addr, 6, 7) == 42;
+}
+
+# --- TestCrossModuleGlobInit ---
+test "cross module glob init compiles without errors" {
+    # Importing a module with a glob list initializer must compile cleanly.
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "cross_module_glob_init.na.jac")));
+    assert not prog.errors_had , f"Errors: {prog.errors_had}";
+    assert ir is not None;
+    assert ir.gen.native_engine is not None , "No native engine created";
+}
+
+test "cross module glob init: imported glob is non-null on first access" {
+    # Before the fix, _TABLE in the library module stayed null after import,
+    # causing table_len() to return garbage and table_push() to segfault.
+    # After the fix, jac_entry calls __jac_glob_init_cross_module_glob_init_lib_na
+    # so the list is properly allocated before any code touches it.
+    (eng, _) = compile_native("cross_module_glob_init.na.jac");
+    # Call jac_entry to trigger __jac_glob_init for both this module and the import.
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    run_test = get_func(eng, "run_glob_init_test", ctypes.c_int64);
+    result = run_test();
+    # Encoded: initial_len*10000 + after_one*100 + after_two = 0*10000 + 1*100 + 2 = 102
+    assert result == 102 , f"Expected 102 (0 items, then 1, then 2), got {result}";
+}
+
+test "cross module glob init: pushed values are readable" {
+    # Verify table_get(0) and table_get(1) return the values pushed by run_test.
+    (eng, _) = compile_native("cross_module_glob_init.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    run_test = get_func(eng, "run_glob_init_test", ctypes.c_int64);
+    run_test();  # populate: push(42), push(99)
+    get_first = get_func(eng, "get_first", ctypes.c_int64);
+    get_second = get_func(eng, "get_second", ctypes.c_int64);
+    assert get_first() == 42 , f"Expected 42, got {get_first()}";
+    assert get_second() == 99 , f"Expected 99, got {get_second()}";
+}
+
+# ─── FIX 1: Transitive native imports linked via DFS ─────────────────────────
+# Before the fix, the linker only walked direct imports. A → B → C would
+# compile B but leave C's symbols unresolved at JIT link time.
+# jac-bun/issues/transitive-native-import-not-linked/
+test "transitive import: compiles without errors" {
+    # fix_transitive_entry imports fix_transitive_mid which imports fix_transitive_leaf.
+    # All three modules must be linked for compilation to succeed.
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "fix_transitive_entry.na.jac")));
+    assert not prog.errors_had , f"Errors: {prog.errors_had}";
+    assert ir is not None;
+    assert ir.gen.native_engine is not None , "No native engine created";
+}
+
+test "transitive import: function call through two import hops returns correct value" {
+    # run_transitive_test() → get_mid() → get_leaf() → 99
+    # All three functions must be linked for this to work.
+    (eng, _) = compile_native("fix_transitive_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    run_fn = get_func(eng, "run_transitive_test", ctypes.c_int64);
+    assert run_fn() == 99 , f"Expected 99, got {run_fn()}";
+}
+
+test "transitive import: same result on repeated calls (no state corruption)" {
+    (eng, _) = compile_native("fix_transitive_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    run_fn = get_func(eng, "run_transitive_test", ctypes.c_int64);
+    assert run_fn() == 99 , f"First call: expected 99, got {run_fn()}";
+    assert run_fn() == 99 , f"Second call: expected 99, got {run_fn()}";
+    assert run_fn() == 99 , f"Third call: expected 99, got {run_fn()}";
+}
+
+# ─── FIX 4: del list[i] shrinks the list ─────────────────────────────────────
+# Before the fix, `del container.field_list[i]` was silently dropped from
+# the IR — the element was never removed and the list length never changed.
+# jac-bun/issues/del-struct-field-list-no-shrink/
+test "del list item: length decrements after delete" {
+    # Container starts with [10, 20, 30]; after del items[2] length must be 2.
+    (eng, _) = compile_native("fix_del_list.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_del_shrinks_length", ctypes.c_int64);
+    result = f();
+    assert result == 2 , f"Expected length 2 after del, got {result}";
+}
+
+test "del list item: remaining elements shift left after delete" {
+    # After del items[0] from [10, 20, 30], items[0] must become 20.
+    (eng, _) = compile_native("fix_del_list.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_del_shifts_elements", ctypes.c_int64);
+    result = f();
+    assert result == 20 , f"Expected items[0]=20 after del, got {result}";
+}
+
+test "del list item: deleting only element yields empty list" {
+    # del items[0] from single-element list — length must become 0.
+    (eng, _) = compile_native("fix_del_list.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_del_last_element", ctypes.c_int64);
+    result = f();
+    assert result == 0 , f"Expected length 0 after del, got {result}";
+}
+
+# ─── FIX 3a: Imported archetype methods registered in method_funcs ────────────
+# Before the fix, _forward_declare_method was never called for methods on
+# imported archetypes, so calls like `c.increment()` were silently dropped.
+# jac-bun/issues/imported-archetype-methods-not-in-method-funcs/
+test "imported archetype method: single increment returns 1" {
+    # Counter.increment() on an imported struct; expect 1 after one call.
+    (eng, _) = compile_native("fix_method_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_increment_once", ctypes.c_int64);
+    result = f();
+    assert result == 1 , f"Expected 1, got {result}";
+}
+
+test "imported archetype method: double increment returns 2" {
+    # Two calls to increment() on the same Counter; expect 2.
+    (eng, _) = compile_native("fix_method_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_increment_twice", ctypes.c_int64);
+    result = f();
+    assert result == 2 , f"Expected 2, got {result}";
+}
+
+test "imported archetype method: add_delta returns updated value" {
+    # Counter starts at 5, add_delta(3); expect 8.
+    (eng, _) = compile_native("fix_method_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_add_delta", ctypes.c_int64);
+    result = f();
+    assert result == 8 , f"Expected 8, got {result}";
+}
+
+test "imported archetype method: independent instances do not share state" {
+    # Two counters accumulate independently; encoded as a*100 + b.
+    # a = 2 (incremented twice), b = 15 (start 10 + delta 5) → 215.
+    (eng, _) = compile_native("fix_method_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_two_counters", ctypes.c_int64);
+    result = f();
+    assert result == 215 , f"Expected 215 (a=2, b=15), got {result}";
+}
+
+# ─── FIX 3b: Cross-module fn arg where param type is from a third module ──────
+# When calling an imported function whose parameter type is itself defined in
+# a third module, the compiler emitted i64(0) instead of the correct struct*.
+# jac-bun/issues/cross-module-fn-arg-third-module-struct-as-i64/
+test "third module struct: compiles without type errors" {
+    # fix_third_entry imports from fix_third_a and fix_third_b.
+    # fix_third_b's read_value takes a DataA from fix_third_a — third-module struct.
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "fix_third_entry.na.jac")));
+    assert not prog.errors_had , f"Compilation errors: {prog.errors_had}";
+    assert ir.gen.native_engine is not None , "No native engine";
+}
+
+test "third module struct: value field survives cross-module round-trip" {
+    # make_data_a(77, 3) → pass to read_value; expect 77.
+    (eng, _) = compile_native("fix_third_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_third_struct_value", ctypes.c_int64);
+    result = f();
+    assert result == 77 , f"Expected 77, got {result}";
+}
+
+test "third module struct: both fields correct after cross-module call" {
+    # make_data_a(77, 3) → read_sum (value+tag); expect 80.
+    (eng, _) = compile_native("fix_third_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_third_struct_sum", ctypes.c_int64);
+    result = f();
+    assert result == 80 , f"Expected 80, got {result}";
+}
+
+# ─── FIX 5: var_type_node populated for imported globals (subscript access) ───
+# Before the fix, _register_imported_globals did not store the type-annotation
+# AST node in var_type_node, so _resolve_ptr_elem_cast_type emitted i8* null
+# when accessing elements of cross-module list globals inline (ITEMS[i].field).
+# jac-bun/issues/cross-module-list-subscript-multilevel-field-access/
+test "cross-module subscript: compiles without errors" {
+    prog = JacProgram();
+    ir = prog.compile(str(os.path.join(FIXTURES, "fix_subscript_entry.na.jac")));
+    assert not prog.errors_had , f"Compilation errors: {prog.errors_had}";
+    assert ir.gen.native_engine is not None , "No native engine";
+}
+
+test "cross-module subscript: inline ITEMS[0].value returns correct value" {
+    # push_item(42, 7) then ITEMS[0].value inline (no typed local); expect 42.
+    (eng, _) = compile_native("fix_subscript_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();  # initialises ITEMS glob in fix_subscript_outer
+    f = get_func(eng, "test_subscript_value", ctypes.c_int64);
+    result = f();
+    assert result == 42 , f"Expected 42, got {result}";
+}
+
+test "cross-module subscript: inline ITEMS[0].extra returns correct value" {
+    # push_item(42, 7) then ITEMS[0].extra inline; expect 7.
+    (eng, _) = compile_native("fix_subscript_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_subscript_extra", ctypes.c_int64);
+    result = f();
+    assert result == 7 , f"Expected 7, got {result}";
+}
+
+test "cross-module subscript: inline access to second item returns correct value" {
+    # push (42,7) then (99,3); ITEMS[1].value inline; expect 99.
+    (eng, _) = compile_native("fix_subscript_entry.na.jac");
+    entry_fn = get_func(eng, "jac_entry", None);
+    entry_fn();
+    f = get_func(eng, "test_subscript_second_item", ctypes.c_int64);
+    result = f();
+    assert result == 99 , f"Expected 99, got {result}";
 }

@@ -9,17 +9,9 @@ import sys;
 import types;
 import from typing { Any }
 import from jaclang.cli.console { console }
-
-glob _runtime_initialized = False;
-
-"""Initialize Jac runtime once on first use."""
-def _ensure_jac_runtime -> None {
-    global _runtime_initialized;
-    if not _runtime_initialized {
-        import from jaclang.jac0core.runtime { JacRuntime as Jac }
-        Jac.setup();
-        _runtime_initialized = True;
-    }
+import from jaclang.cli.commands.cli_helpers {
+    ensure_jac_runtime as _ensure_jac_runtime,
+    proc_file as _proc_file
 }
 
 """Discover jac.toml from the file's directory when an absolute/relative path is given.
@@ -92,41 +84,13 @@ def _populate_native_argv(engine: object, argv: list[str]) -> None {
     engine._jac_argv_refs = (c_strings, c_argv);
 }
 
-"""Create JacRuntime and return the base path, module name, and runtime state.
-
-This is the canonical function for setting up CLI execution context.
-It handles base_path setup, closing any existing context, and creating a new one.
-"""
-def _proc_file(filename: str) -> tuple {
-    import from jaclang.jac0core.runtime { JacRuntime as Jac }
-    (base, mod) = os.path.split(filename);
-    base = base or './';
-    if filename.endswith('.na.jac') {
-        mod = mod[:-7];
-    } elif filename.endswith('.jac') {
-        mod = mod[:-4];
-    } elif filename.endswith('.py') {
-        mod = mod[:-3];
-    } else {
-        console.error('Not a valid file!\nOnly supports `.jac` and `.py`');
-        `exit(1);
-    }
-    # Only set base path if not already set (allows tests to override)
-    if not Jac.base_path_dir {
-        Jac.set_base_path(base);
-    }
-    # CLI contexts use system_root (no user authentication)
-    mach = Jac.create_j_context(user_root=None);
-    Jac.set_context(mach);
-    return (base, mod, mach);
-}
-
 """Run the specified .jac file."""
 impl run(
     filename: str,
     main: bool = True,
     cache: bool = True,
     autonative: bool = False,
+    show_errors: bool = False,
     args: list = []
 ) -> int {
     _ensure_jac_runtime();
@@ -174,7 +138,7 @@ impl run(
                     ir_mod = na_program.compile(file_path=full_path);
                     if (
                         ir_mod
-                        and ir_mod.gen._auto_promoted_native
+                        and ir_mod.gen.native_compat
                         and ir_mod.gen.native_engine
                     ) {
                         # Auto-promoted native module: execute via JIT
@@ -220,7 +184,7 @@ impl run(
     } except Exception as e {
         if Jac.program.errors_had {
             for error in Jac.program.errors_had {
-                console.error(error.pretty_print(colors=True));
+                console.error(error.pretty_print());
             }
         } else {
             import from jaclang.jac0core.helpers { dump_traceback }
@@ -229,6 +193,23 @@ impl run(
         sys.argv = original_argv;
         mach.close();
         return 1;
+    }
+    n_errors = len(Jac.program.errors_had);
+    n_warnings = len(Jac.program.warnings_had);
+    if show_errors {
+        for error in Jac.program.errors_had {
+            console.error(error.pretty_print());
+        }
+        for warning in Jac.program.warnings_had {
+            console.warning(f"{warning}");
+        }
+    }
+    if n_errors or n_warnings {
+        console.print(
+            f"\n{n_errors} error(s), {n_warnings} warning(s) "
+            f"[diagnostics from first compile, cached for subsequent runs]",
+            style="dim"
+        );
     }
     sys.argv = original_argv;
     mach.close();
@@ -241,7 +222,7 @@ impl enter(
     entrypoint: str,
     args: list = [],
     main: bool = True,
-    `root: str = '',
+    root: str = '',
     nd: str = ''
 ) -> int {
     _ensure_jac_runtime();
@@ -251,8 +232,8 @@ impl enter(
     _discover_config_from_file(filename);
     (base, mod, mach) = _proc_file(filename);
     # Set user root if provided (for permission boundary)
-    if `root {
-        mach.set_user_root(`root);
+    if root {
+        mach.set_user_root(root);
     }
     if filename.endswith('.jac') {
         ret_module = Jac.jac_import(
@@ -320,7 +301,7 @@ impl start(
         Jac.jac_import(target=mod, base_path=base, lng=lng);
         if Jac.program.errors_had {
             for error in Jac.program.errors_had {
-                console.error(error.pretty_print(colors=True));
+                console.error(error.pretty_print());
             }
             mach.close();
             return 1;
@@ -328,7 +309,7 @@ impl start(
     } except Exception as e {
         if Jac.program.errors_had {
             for error in Jac.program.errors_had {
-                console.error(error.pretty_print(colors=True));
+                console.error(error.pretty_print());
             }
         } else {
             import from jaclang.jac0core.helpers { dump_traceback }

@@ -21,6 +21,7 @@ import from pathlib { Path }
 import from typing { Any }
 
 import from jaclang { JacRuntime as Jac }
+import from jaclang.jac0core.constant { Constants as Con }
 
 """Create an isolated ScaleTestClient with temp dir from a fixture file."""
 def make_client(fixture_file: str = "test_api.jac") -> ScaleTestClient {
@@ -70,7 +71,7 @@ obj ScaleTestClient {
     ) -> ScaleTestClient {
         resolved = Path(jac_file).resolve();
         if not resolved.exists() {
-            raise FileNotFoundError(f"Jac file not found: {jac_file}") ;
+            raise FileNotFoundError(f"Jac file not found: {jac_file}");
         }
         effective_base = base_path or str(resolved.parent);
         client = ScaleTestClient(_jac_file=str(resolved), _base_path=effective_base);
@@ -122,7 +123,7 @@ obj ScaleTestClient {
         self._server.register_static_file_endpoint();
         self._server.register_page_endpoint();
         self._server.register_client_js_endpoint();
-        self._server.user_manager.create_user('__guest__', '__no_password__');
+        self._server.user_manager.create_user(Con.GUEST.value, '__no_password__');
 
         # Execute endpoint registration (compiles JEndPoints into FastAPI routes)
         self._server.server.create_server();
@@ -196,7 +197,7 @@ obj ScaleTestClient {
         if data.get("ok") and data.get("data") {
             return (data["data"]["username"], data["data"]["token"]);
         }
-        raise RuntimeError(f"User registration failed: {data}") ;
+        raise RuntimeError(f"User registration failed: {data}");
     }
 
     """Login a user and return the token."""
@@ -208,7 +209,7 @@ obj ScaleTestClient {
         if data.get("ok") and data.get("data") and "token" in data["data"] {
             return data["data"]["token"];
         }
-        raise RuntimeError(f"User login failed: {data}") ;
+        raise RuntimeError(f"User login failed: {data}");
     }
 
     """Login as admin. Returns the auth token string."""
@@ -240,7 +241,7 @@ obj ScaleTestClient {
             }
             return login_data["token"];
         }
-        raise RuntimeError(f"Admin login failed: {data}") ;
+        raise RuntimeError(f"Admin login failed: {data}");
     }
 
     """Get the underlying server instance."""

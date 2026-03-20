@@ -6,7 +6,7 @@ import from kubernetes { client }
 impl parse_cpu_quantity(quantity: str) -> float {
     trimmed = quantity.strip();
     if (trimmed == '') {
-        raise ValueError('CPU quantity cannot be empty.') ;
+        raise ValueError('CPU quantity cannot be empty.');
     }
     lower = trimmed.lower();
     if lower.endswith('m') {
@@ -14,7 +14,7 @@ impl parse_cpu_quantity(quantity: str) -> float {
         if (value == '') {
             raise ValueError(
                 f"CPU quantity '{quantity}' is missing a numeric component."
-            ) ;
+            );
         }
         return float(value) / 1000.0;
     }
@@ -24,7 +24,7 @@ impl parse_cpu_quantity(quantity: str) -> float {
 impl parse_memory_quantity(quantity: str) -> float {
     trimmed = quantity.strip();
     if (trimmed == '') {
-        raise ValueError('Memory quantity cannot be empty.') ;
+        raise ValueError('Memory quantity cannot be empty.');
     }
     suffixes = [
         ('EI', float(1024 ** 6)),
@@ -47,7 +47,7 @@ impl parse_memory_quantity(quantity: str) -> float {
             if (number_part == '') {
                 raise ValueError(
                     f"Memory quantity '{quantity}' is missing a numeric component."
-                ) ;
+                );
             }
             return float(number_part) * multiplier;
         }
@@ -66,12 +66,12 @@ impl validate_resource_limits(
             cpu_request_value = parse_cpu_quantity(cpu_request);
             cpu_limit_value = parse_cpu_quantity(cpu_limit);
         } except ValueError as exc {
-            raise ValueError(f"Invalid CPU quantity: {exc}") ;
+            raise ValueError(f"Invalid CPU quantity: {exc}");
         }
         if (cpu_limit_value < cpu_request_value) {
             raise ValueError(
                 f"K8s_CPU_LIMIT ({cpu_limit}) must not be lower than K8s_CPU_REQUEST ({cpu_request})."
-            ) ;
+            );
         }
     }
     if (memory_request and memory_limit) {
@@ -79,12 +79,12 @@ impl validate_resource_limits(
             memory_request_value = parse_memory_quantity(memory_request);
             memory_limit_value = parse_memory_quantity(memory_limit);
         } except ValueError as exc {
-            raise ValueError(f"Invalid memory quantity: {exc}") ;
+            raise ValueError(f"Invalid memory quantity: {exc}");
         }
         if (memory_limit_value < memory_request_value) {
             raise ValueError(
                 f"K8s_MEMORY_LIMIT ({memory_limit}) must not be lower than K8s_MEMORY_REQUEST ({memory_request})."
-            ) ;
+            );
         }
     }
 }
@@ -108,6 +108,12 @@ impl sync_code_to_pvc(
         'metadata': {'name': sync_pod_name, 'labels': {'managed': 'jac-scale'}},
         'spec': {
             'restartPolicy': 'Never',
+            'securityContext': {
+                'runAsNonRoot': True,
+                'runAsUser': 1000,
+                'fsGroup': 1000,
+                'seccompProfile': {'type': 'RuntimeDefault'}
+            },
             'affinity': {
                 'podAffinity': {
                     'preferredDuringSchedulingIgnoredDuringExecution': [
@@ -128,11 +134,23 @@ impl sync_code_to_pvc(
                     'name': 'sync',
                     'image': sync_image,
                     'command': ['sh', '-c', 'sleep 3600'],
-                    'volumeMounts': [{'name': 'code', 'mountPath': '/data'}]
+                    'securityContext': {
+                        'runAsNonRoot': True,
+                        'runAsUser': 1000,
+                        'readOnlyRootFilesystem': True,
+                        'allowPrivilegeEscalation': False,
+                        'capabilities': {'drop': ['ALL']},
+                        'seccompProfile': {'type': 'RuntimeDefault'}
+                    },
+                    'volumeMounts': [
+                        {'name': 'code', 'mountPath': '/data'},
+                        {'name': 'tmp', 'mountPath': '/tmp'}
+                    ]
                 }
             ],
             'volumes': [
-                {'name': 'code', 'persistentVolumeClaim': {'claimName': pvc_name}}
+                {'name': 'code', 'persistentVolumeClaim': {'claimName': pvc_name}},
+                {'name': 'tmp', 'emptyDir': {}}
             ]
         }
     };
@@ -144,7 +162,7 @@ impl sync_code_to_pvc(
             wait_for_pod_deletion(core_v1, namespace, sync_pod_name);
             core_v1.create_namespaced_pod(namespace, pod_body);
         } else {
-            raise ;
+            raise;
         }
     }
     wait_for_pod_phase(core_v1, namespace, sync_pod_name, {'Running'});
@@ -184,7 +202,7 @@ impl sync_code_to_pvc(
                 '--',
                 'sh',
                 '-c',
-                'tar -xzf /tmp/jaseci-code.tar.gz -C /data/workspace && rm -f /tmp/jaseci-code.tar.gz'
+                'tar -xzf /tmp/jaseci-code.tar.gz -C /data/workspace && chmod -R a+rX /data/workspace && rm -f /tmp/jaseci-code.tar.gz'
             ]
         );
         # Remove jac.local.toml which is meant for local dev overrides only
@@ -223,7 +241,7 @@ impl sync_code_to_pvc(
             wait_for_pod_deletion(core_v1, namespace, sync_pod_name);
         } except ApiException as exc {
             if (exc.status != 404) {
-                raise ;
+                raise;
             }
         }
     }
@@ -234,16 +252,16 @@ impl run_kubectl_command(args: list[str], cwd: str | Path | None = None) -> None
     import shutil;
     import subprocess;
     if (shutil.which('kubectl') is None) {
-        raise RuntimeError('kubectl is required to sync code to the PVC.') ;
+        raise RuntimeError('kubectl is required to sync code to the PVC.');
     }
     try {
         subprocess.run(
             ['kubectl', *args], check=True, text=True, cwd=str(cwd) if cwd else None
         );
     } except subprocess.CalledProcessError as exc {
-        raise exc from RuntimeError(
+        raise RuntimeError(
             f"kubectl command failed: {' '.join(['kubectl', *args])}"
-        ) ;
+        ) from exc;
     }
 }
 
@@ -259,11 +277,11 @@ impl wait_for_pod_deletion(
             if (exc.status == 404) {
                 return;
             }
-            raise ;
+            raise;
         }
         time.sleep(2);
     }
-    raise TimeoutError(f"Timed out waiting for pod '{pod_name}' deletion.") ;
+    raise TimeoutError(f"Timed out waiting for pod '{pod_name}' deletion.");
 }
 
 """Poll the pod until it reaches one of the desired phases."""
@@ -283,20 +301,20 @@ impl wait_for_pod_phase(
                 time.sleep(2);
                 continue;
             }
-            raise ;
+            raise;
         }
         phase = (pod.status.phase or '').strip();
         if (phase in target_phases) {
             return;
         }
         if (phase == 'Failed') {
-            raise RuntimeError(f"Sync pod '{pod_name}' entered Failed state.") ;
+            raise RuntimeError(f"Sync pod '{pod_name}' entered Failed state.");
         }
         time.sleep(2);
     }
     raise TimeoutError(
         f"Timed out while waiting for pod '{pod_name}' to reach phase {target_phases}."
-    ) ;
+    );
 }
 
 """Create a PersistentVolumeClaim if it does not already exist."""
@@ -313,7 +331,7 @@ impl ensure_pvc_exists(
         return;
     } except ApiException as exc {
         if (exc.status != 404) {
-            raise ;
+            raise;
         }
     }
     import from typing { Any }
@@ -332,28 +350,23 @@ impl ensure_pvc_exists(
     core_v1.create_namespaced_persistent_volume_claim(namespace, pvc_body);
 }
 
-"""
-Detect if the current connected cluster is AWS or local.
+"""Check that the requested NodePorts are not already bound by services
+in other namespaces.
 
-    Returns:
-        'aws' for AWS EKS clusters, 'local' for local/other clusters.
+NodePorts are cluster-scoped, so two services in different namespaces
+cannot share the same NodePort value.  Services inside current_namespace
+are excluded because they will be replaced by this deployment.
+Raises ValueError listing every conflicting port and the service that owns it.
 """
-impl check_node_ports_available(
-    node_port: int,
-    prometheus_node_port: int | None,
-    grafana_node_port: int | None,
-    current_namespace: str,
-    redis_insight_node_port: int | None = None,
-    mongo_express_node_port: int | None = None
-) -> None {
-    """Check that the requested NodePorts are not already bound by services
-    in other namespaces.
+impl check_node_ports_available(node_port: int, current_namespace: str) -> None {
+    """Check that the ingress controller NodePort is not already bound by a
+    service in another namespace.
 
     NodePorts are cluster-scoped, so two services in different namespaces
     cannot share the same NodePort value.  Services inside current_namespace
     are excluded because they will be replaced by this deployment.
-    Raises ValueError listing every conflicting port and the service that owns it.
-    """
+    Raises ValueError if the port is already bound.
+    """;
     v1 = client.CoreV1Api();
     all_services = v1.list_service_for_all_namespaces();
     # Build a map: port_number -> "namespace/service-name"
@@ -370,41 +383,22 @@ impl check_node_ports_available(
             }
         }
     }
-    requested: dict[str, int] = {'node_port': node_port};
-    if prometheus_node_port is not None {
-        requested['prometheus_node_port'] = prometheus_node_port;
-    }
-    if grafana_node_port is not None {
-        requested['grafana_node_port'] = grafana_node_port;
-    }
-    if redis_insight_node_port is not None {
-        requested['redis_insight_node_port'] = redis_insight_node_port;
-    }
-    if mongo_express_node_port is not None {
-        requested['mongo_express_node_port'] = mongo_express_node_port;
-    }
-    conflicts: list[str] = [];
-    for (param_name, port_val) in requested.items() {
-        if port_val in used_ports {
-            conflicts.append(
-                f"  {param_name}={port_val} is already in use by '{used_ports[
-                    port_val
-                ]}'"
-            );
-        }
-    }
-    if conflicts {
-        conflict_lines = '\n'.join(conflicts);
+    if node_port in used_ports {
         raise ValueError(
             f"NodePort conflict detected on local cluster.\n"
-            f"The following requested ports are already bound:\n{conflict_lines}\n"
-            f"Please choose different port values in your KubernetesConfig "
-            f"(node_port, prometheus_node_port, grafana_node_port, "
-            f"redis_insight_node_port, mongo_express_node_port) and try again."
-        ) ;
+            f"  ingress_node_port={node_port} is already in use by '{used_ports[
+                node_port
+            ]}'\n"
+            f"Please choose a different ingress_node_port value in your KubernetesConfig and try again."
+        );
     }
 }
 
+"""Detect if the current connected cluster is AWS or local.
+
+Returns:
+    'aws' for AWS EKS clusters, 'local' for local/other clusters.
+"""
 impl cluster_type -> str {
     try {
         v1 = client.CoreV1Api();
@@ -460,12 +454,24 @@ impl check_pods_restarted(namespace: str, app_name: str) -> bool {
         }
 
         for container in statuses {
-            if (container.restart_count > 0) {
-                console.print(
-                    f"Pod {pod.metadata.name} container "
-                    f"{container.name} restarted "
-                );
-                return True;
+            # Fast-exit: restarted AND not currently running means it crashed
+            # and hasn't recovered. A pod that restarts once then stabilises
+            # (e.g. MongoDB with readOnlyRootFilesystem) will have restart_count>0
+            # but state.running set, so it passes this check.
+            if container.restart_count > 0 {
+                is_running = container.state and container.state.running;
+                if not is_running {
+                    reason = (
+                        container.state.waiting.reason
+                            if (container.state and container.state.waiting)
+                            else "unknown"
+                    );
+                    console.print(
+                        f"Pod {pod.metadata.name} container "
+                        f"{container.name} restarted and is not running (reason: {reason})"
+                    );
+                    return True;
+                }
             }
         }
     }
@@ -497,6 +503,10 @@ impl check_deployment_status(
             response = requests.get(url, timeout=10);
             if (response.status_code == 200) {
                 return (True, "Successful");
+            }
+            # Non-200 (e.g. 503 from NGINX when app pod is down) — check for restarts
+            if check_pods_restarted(namespace, app_name) {
+                return (False, "Containers restarted");
             }
         } except RequestException as e {
             if check_pods_restarted(namespace, app_name) {
@@ -541,7 +551,7 @@ impl create_or_update_configmap(
         if (e.status == 404) {
             v1.create_namespaced_config_map(namespace, body);
         } else {
-            raise ;
+            raise;
         }
     }
 }
@@ -561,7 +571,7 @@ impl exclude_folders(tarinfo: tarfile.TarInfo) -> Optional[tarfile.TarInfo] {
 """
 impl create_tarball(source_dir: str, tar_path: str) -> None {
     if not os.path.exists(source_dir) {
-        raise FileNotFoundError(f"Source directory not found: {source_dir}") ;
+        raise FileNotFoundError(f"Source directory not found: {source_dir}");
     }
     os.makedirs((os.path.dirname(tar_path) or '.'), exist_ok=True);
     with tarfile.open(tar_path, 'w:gz') as tar {
@@ -587,7 +597,7 @@ impl delete_namespace(namespace: str) -> None {
         if (e.status == 404) {
             console.print(f"Namespace '{namespace}' not found, skipping deletion.");
         } else {
-            raise ;
+            raise;
         }
     }
 }
@@ -609,6 +619,23 @@ impl ensure_namespace_exists(namespace: str) -> None {
         core_v1 = client.CoreV1Api();
         core_v1.read_namespace(name=namespace);
         console.print(f"Namespace '{namespace}' already exists.");
+        try {
+            core_v1.patch_namespace(
+                name=namespace,
+                body={
+                    'metadata': {
+                        'labels': {
+                            'pod-security.kubernetes.io/enforce': 'baseline',
+                            'pod-security.kubernetes.io/warn': 'restricted'
+                        }
+                    }
+                }
+            );
+        } except ApiException as patch_err {
+            console.print(
+                f"Warning: could not apply PSS labels to namespace '{namespace}': {patch_err}"
+            );
+        }
     } except ApiException as e {
         if (e.status == 404) {
             console.print(f"Namespace '{namespace}' not found. Creating it...");
@@ -616,12 +643,18 @@ impl ensure_namespace_exists(namespace: str) -> None {
                 body={
                     'apiVersion': 'v1',
                     'kind': 'Namespace',
-                    'metadata': {'name': namespace}
+                    'metadata': {
+                        'name': namespace,
+                        'labels': {
+                            'pod-security.kubernetes.io/enforce': 'baseline',
+                            'pod-security.kubernetes.io/warn': 'restricted'
+                        }
+                    }
                 }
             );
             console.print(f"Namespace '{namespace}' created successfully.");
         } else {
-            raise ;
+            raise;
         }
     }
 }
@@ -636,7 +669,7 @@ impl delete_if_exists(
         if (e.status == 404) {
             ;
         } else {
-            raise ;
+            raise;
         }
     }
 }
@@ -651,7 +684,7 @@ impl check_K8s_status -> None {
         try {
             config.load_incluster_config();
         } except ConfigException {
-            raise None from Exception('Kubernetes is not configured on this machine.') ;
+            raise None from Exception('Kubernetes is not configured on this machine.');
         }
     }
     try {
@@ -660,7 +693,7 @@ impl check_K8s_status -> None {
     } except (ApiException, urllib3.exceptions.HTTPError, OSError) {
         raise None from Exception(
             'Unable to connect to kubernetes APi.Check whether kubernetes cluster is up'
-        ) ;
+        );
     }
 }
 
@@ -706,7 +739,7 @@ impl create_k8s_secret(
                 name=secret_name, namespace=namespace, body=secret_body
             );
         } else {
-            raise ;
+            raise;
         }
     }
     return True;
@@ -720,7 +753,7 @@ impl delete_k8s_secret(
         core_v1.delete_namespaced_secret(name=secret_name, namespace=namespace);
     } except ApiException as e {
         if e.status != 404 {
-            raise ;
+            raise;
         }
     }
 }

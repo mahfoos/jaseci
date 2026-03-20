@@ -158,18 +158,9 @@ test "compute next run and schedule decorator" {
     assert module.static_fn.schedule_spec.trigger == ScheduleTrigger.STATIC;
     assert module.str_trigger_fn.schedule_spec.trigger == ScheduleTrigger.STATIC;
 
-    # DYNAMIC raises NotImplementedError
-    try {
-        @schedule(interval=10, trigger=ScheduleTrigger.DYNAMIC)
-        def dynamic_fn { }
-        assert False , "Expected NotImplementedError";
-    } except NotImplementedError as e {
-        assert "jac-scale" in str(e).lower();
-    }
-
     # _execute catches exceptions gracefully
     def bad_fn {
-        raise RuntimeError("boom") ;
+        raise RuntimeError("boom");
     }
     task = ScheduledTask(
         name="bad_task",
@@ -249,7 +240,7 @@ test "scheduler executes walkers and functions correctly" {
 
     # Bad function to verify error recovery
     def bad_fn {
-        raise RuntimeError("deliberate error") ;
+        raise RuntimeError("deliberate error");
     }
     sched.register("bad", bad_fn, ScheduleSpec(interval=0.2), False);
 

@@ -472,11 +472,11 @@ def x(
 }
 
 with entry {
-    visit [-->(?:Year, year==self.target_day.year)];
+    visit [-->[?:Year, year==self.target_day.year]];
 }
 
 # Match statement comment preservation
-def test_match_comments(x: int) {
+def test_match_comments(x: int) -> bool {
     match x {
         # comment before first case
         case 1:

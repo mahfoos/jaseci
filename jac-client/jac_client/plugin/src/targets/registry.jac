@@ -31,7 +31,7 @@ def get_target_type(name: str) -> TargetType {
     }
     raise ValueError(
         f"Unknown target: {name}. Available: {', '.join([t.value for t in TargetType])}"
-    ) ;
+    );
 }
 
 """Base class for all build targets.
