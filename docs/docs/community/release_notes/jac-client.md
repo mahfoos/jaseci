@@ -4,6 +4,13 @@ This document provides a summary of new features, improvements, and bug fixes in
 
 ## jac-client 0.3.8 (Unreleased)
 
+- **Scalable Plugin Bundling for Desktop**: Refactored the PyInstaller spec generation to use `collect_all()` for comprehensive, automatic package bundling. Plugin dependencies (jac-scale, byllm, jac-coder) and their transitive dependencies are now automatically discovered via `importlib.metadata.requires()` instead of manually maintained import lists. This eliminates runtime errors like "No module named 'websockets'" or "No module named 'loguru'" when plugins update their dependencies. The new system:
+  - Automatically collects all data files, binaries, and submodules for each plugin
+  - Recursively discovers dependencies from package metadata (pyproject.toml)
+  - Deduplicates collected packages to optimize bundle size
+  - Works with both PyPI-installed and source-installed (`pip install -e`) packages
+  - Removed ~150 lines of manual `hiddenimports.extend([...])` and `collect_submodules()` calls
+
 ## jac-client 0.3.7 (Latest Release)
 
 - **PWA Install Banner**: PWA apps now show an automatic install prompt after `jac setup pwa` -- no manual code required. Features include a glassmorphic dark banner with slide-up animation, native Chrome/Edge install prompt integration via `beforeinstallprompt`, iOS Safari support with step-by-step "Add to Home Screen" instructions modal, and smart re-prompting with exponential backoff (7 → 14 → 28 days, max 3 dismissals). All banner settings are configurable via `[plugins.client.pwa]` in `jac.toml`: `install_banner`, `install_banner_delay`, `install_banner_position`, `install_button_text`, `install_dismiss_text`. For programmatic control, import `usePwaInstall` hook or `PwaInstallButton` component from `@jac/pwa`.
