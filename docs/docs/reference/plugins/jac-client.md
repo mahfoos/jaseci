@@ -1546,6 +1546,19 @@ jac build --client desktop --platform linux
 
 **Configuration:** Edit `src-tauri/tauri.conf.json` to customize window size, title, and app metadata.
 
+**Plugin Bundling:**
+
+Desktop builds automatically bundle Jac plugins (jac-scale, byllm, jac-coder) and their dependencies into the sidecar executable. Configure which plugins to include via `[desktop.plugins]` in `jac.toml`:
+
+```toml
+[desktop.plugins]
+jac_scale = true   # Include jac-scale (default: true)
+byllm = true       # Include byllm/litellm for LLM support (default: true)
+jac_coder = true   # Include jac-coder for AI coding features (default: true)
+```
+
+**Note:** Plugins must be installed (`pip install jac-scale byllm jac-coder`) before building. The build automatically discovers and bundles all plugin dependencies from their package metadata.
+
 ### PWA Target
 
 Progressive Web App with offline support, installability, and native-like experience.
