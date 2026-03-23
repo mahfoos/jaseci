@@ -2,8 +2,11 @@
 
 This document provides a summary of new features, improvements, and bug fixes in each version of **Jac-Client**. For details on changes that might require updates to your existing code, please refer to the [Breaking Changes](../breaking-changes.md) page.
 
-## jac-client 0.3.7 (Unreleased)
+## jac-client 0.3.8 (Unreleased)
 
+## jac-client 0.3.7 (Latest Release)
+
+- **PWA Install Banner**: PWA apps now show an automatic install prompt after `jac setup pwa` -- no manual code required. Features include a glassmorphic dark banner with slide-up animation, native Chrome/Edge install prompt integration via `beforeinstallprompt`, iOS Safari support with step-by-step "Add to Home Screen" instructions modal, and smart re-prompting with exponential backoff (7 → 14 → 28 days, max 3 dismissals). All banner settings are configurable via `[plugins.client.pwa]` in `jac.toml`: `install_banner`, `install_banner_delay`, `install_banner_position`, `install_button_text`, `install_dismiss_text`. For programmatic control, import `usePwaInstall` hook or `PwaInstallButton` component from `@jac/pwa`.
 - **Vite dev server binds to all interfaces**: Added `host: true` to Vite config and `--host` CLI flag so the dev server is accessible from outside containers/pods.
 - **Client-Side Error Reporting**: Added `__jacReportError` and `__jacInstallErrorHandlers` to the client runtime. Global error handlers (`window.onerror`, `unhandledrejection`) are installed at app initialization to automatically capture unhandled JS errors and forward them to the server via `POST /cl/__error__`. The `ErrorBoundary` fallback component also reports caught errors. Entry file generation (`ViteCompiler`) now imports and calls `__jacInstallErrorHandlers()` on startup for both explicit and pages-based routing modes.
 - **Per-File Source Map Generation**: The client compiler now generates `.js.map` files for each compiled `.jac` module, mapping generated JS lines back to original `.jac` source locations. Source comment headers (`/* Source: path.jac */`) are paired with standard v3 source maps for full traceability.
@@ -17,7 +20,7 @@ This document provides a summary of new features, improvements, and bug fixes in
 - **Fix: Vite Define Skips Empty API URL**: The Vite config no longer injects `__JAC_API_BASE_URL__: undefined` when no API URL is configured, preventing conflicts with Tauri's runtime injection.
 - **Fix: HTML Script Tag Escaping**: Fixed `</script>` sequences in JSON payloads within `<script>` tags being incorrectly interpreted as tag closers by escaping `</` to `<\/`.
 
-## jac-client 0.3.6 (Latest Release)
+## jac-client 0.3.6
 
 - **Fix: Desktop Target Asset Loading**: Fixed an issue where images and other static assets referenced with `/static/assets/` URLs were not loading in desktop (Tauri) builds. Assets are now correctly copied from `compiled/assets/` to `dist/static/assets/` during the build process, ensuring they are available when Tauri serves the frontend bundle. This fix applies to both `jac build --client desktop` and `jac start --client desktop` commands.
 
