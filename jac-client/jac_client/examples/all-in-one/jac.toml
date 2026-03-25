@@ -97,20 +97,50 @@ notifications = false
 # Mobile target configuration (React Native Expo)
 [mobile]
 name = "all-in-one"
-identifier = "com.jaseci.allinone"
+bundle_id = "com.jaseci.allinone"
 version = "1.0.0"
-enabled = true
+display_name = "All In One"
+slug = "all-in-one"
+scheme = "allinone"
 
 [mobile.platforms]
 ios = true
 android = true
 
 [mobile.features]
-webview_debugging = true
-local_storage = true
-camera = false
-geolocation = false
-push_notifications = false
+use_sidecar = false
+api_url = ""
+
+# Expo app configuration (generates mobile/app.json)
+[mobile.expo]
+orientation = "portrait"
+userInterfaceStyle = "light"
+icon = "./assets/icon.png"
+
+[mobile.expo.splash]
+image = "./assets/splash.png"
+resizeMode = "contain"
+backgroundColor = "#ffffff"
+
+[mobile.expo.ios]
+supportsTablet = true
+
+[mobile.expo.android.adaptiveIcon]
+foregroundImage = "./assets/adaptive-icon.png"
+backgroundColor = "#ffffff"
+
+[mobile.expo.web]
+favicon = "./assets/favicon.png"
+
+# EAS Build profiles (generates mobile/eas.json)
+[mobile.eas.profiles.development]
+distribution = "internal"
+
+[mobile.eas.profiles.preview]
+distribution = "internal"
+
+[mobile.eas.profiles.production]
+distribution = "store"
 
 [plugins.client.pwa]
 theme_color = "#000000"
