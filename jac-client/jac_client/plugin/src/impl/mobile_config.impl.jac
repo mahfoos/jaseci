@@ -32,13 +32,41 @@ impl MobileConfig.get_default_config(self: MobileConfig) -> dict[str, Any] {
     }
     # Generate bundle identifier from project name
     bundle_id = _generate_bundle_id(project_name);
+    slug = project_name.lower().replace(" ", "-");
+    scheme = project_name.lower().replace(" ", "").replace("-", "").replace("_", "");
+
     return {
         'name': project_name,
         'bundle_id': bundle_id,
         'version': project_version,
         'display_name': project_name,
+        'slug': slug,
+        'scheme': scheme,
         'platforms': {'ios': True, 'android': True},
-        'features': {'use_sidecar': False, 'api_url': None}
+        'features': {'use_sidecar': False, 'api_url': None},
+        'expo': {
+            'orientation': 'portrait',
+            'userInterfaceStyle': 'light',
+            'icon': './assets/icon.png',
+            'splash': {
+                'image': './assets/splash.png',
+                'resizeMode': 'contain',
+                'backgroundColor': '#ffffff'
+            },
+            'ios': {
+                'supportsTablet': True
+            },
+            'android': {
+                'adaptiveIcon': {
+                    'foregroundImage': './assets/adaptive-icon.png',
+                    'backgroundColor': '#ffffff'
+                }
+            },
+            'web': {
+                'favicon': './assets/favicon.png'
+            },
+            'plugins': ['expo-router', 'expo-dev-client']
+        }
     };
 }
 
@@ -103,6 +131,64 @@ impl MobileConfig.get_platforms_config(self: MobileConfig) -> dict[str, Any] {
 impl MobileConfig.get_features_config(self: MobileConfig) -> dict[str, Any] {
     config = self.load();
     return config.get('features', {});
+}
+
+"""Get app.json configuration for Expo from TOML."""
+impl MobileConfig.get_app_json_config(self: MobileConfig) -> dict[str, Any] {
+    config = self.load();
+    expo_config = config.get('expo', {});
+
+    # Get basic info
+    name = config.get('display_name', config.get('name', 'my-jac-app'));
+    slug = config.get('slug', name.lower().replace(' ', '-'));
+    scheme = config.get('scheme', name.lower().replace(' ', '').replace('-', '').replace('_', ''));
+    version = config.get('version', '1.0.0');
+    bundle_id = config.get('bundle_id', 'com.example.myapp');
+
+    # Build app.json structure
+    app_json = {
+        'expo': {
+            'name': name,
+            'slug': slug,
+            'scheme': scheme,
+            'version': version,
+            'orientation': expo_config.get('orientation', 'portrait'),
+            'icon': expo_config.get('icon', './assets/icon.png'),
+            'userInterfaceStyle': expo_config.get('userInterfaceStyle', 'light'),
+            'splash': expo_config.get('splash', {
+                'image': './assets/splash.png',
+                'resizeMode': 'contain',
+                'backgroundColor': '#ffffff'
+            }),
+            'ios': {
+                **expo_config.get('ios', {}),
+                'bundleIdentifier': bundle_id
+            },
+            'android': {
+                **expo_config.get('android', {}),
+                'package': bundle_id
+            },
+            'web': expo_config.get('web', {
+                'favicon': './assets/favicon.png'
+            }),
+            'plugins': expo_config.get('plugins', ['expo-router', 'expo-dev-client'])
+        }
+    };
+
+    # Ensure ios has supportsTablet
+    if 'supportsTablet' not in app_json['expo']['ios'] {
+        app_json['expo']['ios']['supportsTablet'] = True;
+    }
+
+    # Ensure android has adaptiveIcon
+    if 'adaptiveIcon' not in app_json['expo']['android'] {
+        app_json['expo']['android']['adaptiveIcon'] = {
+            'foregroundImage': './assets/adaptive-icon.png',
+            'backgroundColor': '#ffffff'
+        };
+    }
+
+    return app_json;
 }
 
 """Get EAS (Expo Application Services) configuration for building."""

@@ -25,6 +25,7 @@ class MobileConfig {
     def get_platforms_config(self: MobileConfig) -> dict[str, Any];
     def get_features_config(self: MobileConfig) -> dict[str, Any];
     def get_eas_config(self: MobileConfig) -> dict[str, Any];
+    def get_app_json_config(self: MobileConfig) -> dict[str, Any];
     def validate(self: MobileConfig) -> None;
     def get_default_config(self: MobileConfig) -> dict[str, Any];
     def _get_jac_config(self: MobileConfig) -> JacConfig;

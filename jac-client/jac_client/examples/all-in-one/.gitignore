@@ -21,6 +21,13 @@ node_modules/
 
 # Jac build artifacts
 .jac/
+# But don't ignore mobile directory (needed for EAS builds)
+!.jac/client/
+!.jac/client/mobile/
+# Still ignore node_modules in mobile
+.jac/client/mobile/node_modules/
+.jac/client/mobile/yarn.lock
+
 *.session
 *.session.*
 

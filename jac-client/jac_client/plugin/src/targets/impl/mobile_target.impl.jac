@@ -45,16 +45,29 @@ def _get_local_ip() -> str {
 
 """Setup mobile target - scaffold React Native/Expo project structure."""
 impl MobileTarget.setup(project_dir: Path) -> None {
-    # Define mobile_dir early for error handling
-    mobile_dir = project_dir / "mobile";
+    # Define mobile_dir in .jac/client/mobile/ instead of project_dir/mobile/
+    jac_dir = project_dir / ".jac";
+    client_dir = jac_dir / "client";
+    mobile_dir = client_dir / "mobile";
 
     console.print("\n📱 Setting up mobile target (React Native/Expo)", style="bold");
     console.print(f"  Project directory: {project_dir}", style="muted");
+    console.print(f"  Mobile artifacts will be in: .jac/client/mobile/", style="muted");
 
     # Check if already set up
     if mobile_dir.exists() {
         console.warning("Mobile target already set up. Skipping...");
         return;
+    }
+
+    # Ensure .jac/client directory exists
+    if not client_dir.exists() {
+        try {
+            client_dir.mkdir(parents=True, exist_ok=True);
+            console.print(f"  ✔ Created {client_dir}", style="success");
+        } except Exception as e {
+            raise RuntimeError(f"Failed to create client directory: {e}") ;
+        }
     }
 
     # Ensure project directory exists
@@ -67,7 +80,7 @@ impl MobileTarget.setup(project_dir: Path) -> None {
     }
 
     # Create mobile directory structure
-    console.print("  Creating mobile/ directory structure...", style="muted");
+    console.print("  Creating .jac/client/mobile/ directory structure...", style="muted");
     try {
         mobile_dir.mkdir(parents=True, exist_ok=True);
         (mobile_dir / "app").mkdir(exist_ok=True);
@@ -106,9 +119,9 @@ impl MobileTarget.setup(project_dir: Path) -> None {
         );
         console.print(f"  Bundle ID: {bundle_id}", style="muted");
 
-        # Generate app.json
+        # Generate app.json from TOML config
         try {
-            _generate_app_json(mobile_dir, project_name, bundle_id, project_version, display_name);
+            _generate_app_json_from_toml(mobile_dir, project_dir);
         } except Exception as e {
             console.warning(f"  Failed to generate app.json: {e}");
         }
@@ -177,11 +190,23 @@ impl MobileTarget.setup(project_dir: Path) -> None {
             console.warning(f"  Dependency check encountered an issue: {e}");
         }
 
-        console.success("Mobile target setup complete!");
-        console.print("\nNext steps:", style="bold");
-        console.print("  1. Install dependencies: cd mobile && npm install");
-        console.print("  2. Build: jac build main.jac --client mobile");
-        console.print("  3. Dev:   jac start main.jac --client mobile --dev");
+        # Automatically install dependencies with yarn
+        console.print("\n📦 Installing dependencies with yarn...", style="bold");
+        console.print("  This may take a few minutes...", style="muted");
+        try {
+            _install_yarn_dependencies(mobile_dir);
+            console.success("Mobile target setup complete!");
+            console.print("\nNext steps:", style="bold");
+            console.print("  1. Build: jac build main.jac --client mobile");
+            console.print("  2. Dev:   jac start main.jac --client mobile --dev");
+        } except Exception as e {
+            console.warning(f"  Failed to install dependencies: {e}");
+            console.success("Mobile target setup complete (dependencies not installed)!");
+            console.print("\nNext steps:", style="bold");
+            console.print("  1. Install dependencies: cd .jac/client/mobile && yarn install");
+            console.print("  2. Build: jac build main.jac --client mobile");
+            console.print("  3. Dev:   jac start main.jac --client mobile --dev");
+        }
     } finally {
         # Ensure mobile directory exists no matter what
         if not mobile_dir.exists() {
@@ -195,7 +220,22 @@ impl MobileTarget.setup(project_dir: Path) -> None {
     }
 }
 
-"""Generate app.json for Expo."""
+"""Generate app.json from TOML configuration."""
+def _generate_app_json_from_toml(mobile_dir: Path, project_dir: Path) -> None {
+    import from jac_client.plugin.src.mobile_config { MobileConfig }
+
+    # Load mobile config from jac.toml
+    mobile_config = MobileConfig(project_dir=project_dir);
+    app_json_config = mobile_config.get_app_json_config();
+
+    config_path = mobile_dir / "app.json";
+    with open(config_path, "w") as f {
+        json.dump(app_json_config, f, indent=2);
+    }
+    console.print(f"  ✔ Generated app.json from TOML config", style="success");
+}
+
+"""Generate app.json for Expo (legacy - kept for backwards compatibility)."""
 def _generate_app_json(
     mobile_dir: Path, name: str, bundle_id: str, version: str, display_name: str
 ) -> None {
@@ -260,6 +300,9 @@ def _generate_package_json(mobile_dir: Path, name: str) -> None {
             "expo-router": "~6.0.23",
             "expo-linking": "~8.0.0",
             "expo-status-bar": "~3.0.9",
+            "expo-dev-client": "~6.1.2",
+            "expo-constants": "~18.0.13",
+            "@expo/metro-runtime": "~6.1.2",
             "react": "19.2.4",
             "react-dom": "19.2.4",
             "react-freeze": "~1.0.4",
@@ -708,7 +751,11 @@ def _add_mobile_config(
         return;
     }
 
-    # Add [mobile] section
+    # Add [mobile] section with full Expo configuration
+    # Generate slug and scheme from name
+    slug = name.lower().replace(" ", "-");
+    scheme = name.lower().replace(" ", "").replace("-", "").replace("_", "");
+
     mobile_section = f'''
 
 [mobile]
@@ -716,6 +763,8 @@ name = "{name}"
 bundle_id = "{bundle_id}"
 version = "{version}"
 display_name = "{name}"
+slug = "{slug}"
+scheme = "{scheme}"
 
 [mobile.platforms]
 ios = true
@@ -724,6 +773,38 @@ android = true
 [mobile.features]
 use_sidecar = false
 api_url = ""
+
+# Expo app configuration (generates app.json)
+[mobile.expo]
+orientation = "portrait"
+userInterfaceStyle = "light"
+icon = "./assets/icon.png"
+
+[mobile.expo.splash]
+image = "./assets/splash.png"
+resizeMode = "contain"
+backgroundColor = "#ffffff"
+
+[mobile.expo.ios]
+supportsTablet = true
+
+[mobile.expo.android.adaptiveIcon]
+foregroundImage = "./assets/adaptive-icon.png"
+backgroundColor = "#ffffff"
+
+[mobile.expo.web]
+favicon = "./assets/favicon.png"
+
+# EAS Build profiles (generates eas.json)
+[mobile.eas.profiles.development]
+distribution = "internal"
+developmentClient = true
+
+[mobile.eas.profiles.preview]
+distribution = "internal"
+
+[mobile.eas.profiles.production]
+distribution = "store"
 ''';
 
     # Append to TOML
@@ -750,18 +831,18 @@ def _check_mobile_dependencies() -> None {
         console.warning("  Node.js not found. Install from https://nodejs.org/");
     }
 
-    # Check for npm
+    # Check for yarn
     try {
         result = subprocess.run(
-            ["npm", "--version"], capture_output=True, text=True, timeout=5
+            ["yarn", "--version"], capture_output=True, text=True, timeout=5
         );
         if result.returncode == 0 {
-            console.print(f"  ✔ npm: v{result.stdout.strip()}", style="success");
+            console.print(f"  ✔ yarn: v{result.stdout.strip()}", style="success");
         } else {
-            console.warning("  npm not found. Install Node.js from https://nodejs.org/");
+            console.warning("  yarn not found. Install with: npm install -g yarn");
         }
     } except Exception {
-        console.warning("  npm not found. Install Node.js from https://nodejs.org/");
+        console.warning("  yarn not found. Install with: npm install -g yarn");
     }
 
     # Check for Expo CLI (optional, will be installed locally)
@@ -773,11 +854,36 @@ def _check_mobile_dependencies() -> None {
             console.print(f"  ✔ Expo CLI available", style="success");
         } else {
             console.print(
-                "  ℹ Expo CLI will be installed with npm install", style="muted"
+                "  ℹ Expo CLI will be installed with yarn install", style="muted"
             );
         }
     } except Exception {
-        console.print("  ℹ Expo CLI will be installed with npm install", style="muted");
+        console.print("  ℹ Expo CLI will be installed with yarn install", style="muted");
+    }
+}
+
+"""Install dependencies for mobile project using yarn."""
+def _install_yarn_dependencies(mobile_dir: Path) -> None {
+    try {
+        # Run yarn install with real-time output
+        process = subprocess.run(
+            ["yarn", "install"],
+            cwd=str(mobile_dir),
+            timeout=300,
+            text=True
+        );
+
+        if process.returncode == 0 {
+            console.print("  ✔ Dependencies installed successfully with yarn", style="success");
+        } else {
+            raise RuntimeError(f"yarn install failed with exit code {process.returncode}") ;
+        }
+    } except subprocess.TimeoutExpired {
+        raise RuntimeError("yarn install timed out after 5 minutes") ;
+    } except FileNotFoundError {
+        raise RuntimeError("yarn not found. Install with: npm install -g yarn") ;
+    } except Exception as e {
+        raise RuntimeError(f"yarn install failed: {e}") ;
     }
 }
 
@@ -894,8 +1000,8 @@ impl MobileTarget.build(
     import from jac_client.plugin.src.vite_bundler { ViteBundler }
     console.print("\n📱 Building mobile app (React Native)", style="bold");
 
-    # Check if setup has been run
-    mobile_dir = project_dir / "mobile";
+    # Check if setup has been run - mobile artifacts are in .jac/client/mobile/
+    mobile_dir = project_dir / ".jac" / "client" / "mobile";
     if not mobile_dir.exists() {
         raise RuntimeError(
             "Mobile target not set up. Run 'jac setup mobile' first."
@@ -1031,17 +1137,17 @@ def _build_mobile_app(mobile_dir: Path, platform: str) -> None {
 
     # Check if node_modules exists
     if not (mobile_dir / "node_modules").exists() {
-        console.warning("  node_modules not found, running npm install first...");
+        console.warning("  node_modules not found, running yarn install first...");
         try {
             subprocess.run(
-                ["npm", "install"],
+                ["yarn", "install"],
                 cwd=str(mobile_dir),
                 check=True,
                 timeout=300,
                 text=True
             );
         } except Exception as e {
-            raise RuntimeError(f"npm install failed: {e}") ;
+            raise RuntimeError(f"yarn install failed: {e}") ;
         }
     }
 
@@ -1091,8 +1197,8 @@ impl MobileTarget.dev(
     import sys;
     console.print("\n📱 Starting mobile dev server (Expo)", style="bold");
 
-    # Check if setup has been run
-    mobile_dir = project_dir / "mobile";
+    # Check if setup has been run - mobile artifacts are in .jac/client/mobile/
+    mobile_dir = project_dir / ".jac" / "client" / "mobile";
     if not mobile_dir.exists() {
         raise RuntimeError(
             "Mobile target not set up. Run 'jac setup mobile' first."
@@ -1101,17 +1207,17 @@ impl MobileTarget.dev(
 
     # Check if node_modules exists
     if not (mobile_dir / "node_modules").exists() {
-        console.warning("  node_modules not found, running npm install first...");
+        console.warning("  node_modules not found, running yarn install first...");
         try {
             subprocess.run(
-                ["npm", "install"],
+                ["yarn", "install"],
                 cwd=str(mobile_dir),
                 check=True,
                 timeout=300,
                 text=True
             );
         } except Exception as e {
-            raise RuntimeError(f"npm install failed: {e}") ;
+            raise RuntimeError(f"yarn install failed: {e}") ;
         }
     }
 
@@ -1331,12 +1437,7 @@ def _check_eas_ready(mobile_dir: Path) -> dict {
         return {'is_ready': False, 'error_message': f"Failed to check EAS login status: {e}"};
     }
 
-    # Check if eas.json exists
-    eas_json_path = mobile_dir / "eas.json";
-    if not eas_json_path.exists() {
-        return {'is_ready': False, 'error_message': "eas.json not found. Will be generated automatically."};
-    }
-
+    # Note: We don't check for eas.json here because it will be generated automatically later
     return {'is_ready': True, 'error_message': ""};
 }
 

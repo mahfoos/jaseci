@@ -71,8 +71,8 @@ cd my-app
 # 2. Setup mobile target (one-time scaffolding)
 jac setup mobile
 
-# 3. Install mobile dependencies
-cd mobile && npm install && cd ..
+# 3. Install mobile dependencies (auto-installed during setup)
+# If needed manually: cd .jac/client/mobile && yarn install && cd ../../..
 
 # 4. Start dev server (with hot reload)
 jac start --client mobile --dev
@@ -94,24 +94,26 @@ This command creates the entire React Native/Expo project structure inside a `mo
 **What gets generated:**
 
 ```
-mobile/
-  app/
-    index.tsx          # WebView screen component (main app)
-    _layout.tsx        # Expo Router layout (uses <Slot />)
-  assets/
-    icon.png           # App icon (1024x1024)
-    splash.png         # Splash screen image
-    adaptive-icon.png  # Android adaptive icon
-    favicon.png        # Web favicon
-    jac-app/
-      create-bundle.js # Bundle creation script
-  app.json             # Expo configuration
-  package.json         # Dependencies (expo, react-native, react-native-webview)
-  tsconfig.json        # TypeScript config
-  .gitignore           # Ignores node_modules, .expo, builds
+.jac/
+  client/
+    mobile/
+      app/
+        index.tsx          # WebView screen component (main app)
+        _layout.tsx        # Expo Router layout (uses <Slot />)
+      assets/
+        icon.png           # App icon (1024x1024)
+        splash.png         # Splash screen image
+        adaptive-icon.png  # Android adaptive icon
+        favicon.png        # Web favicon
+        jac-app/
+          create-bundle.js # Bundle creation script
+      app.json             # Expo configuration (generated from jac.toml)
+      package.json         # Dependencies (expo, react-native, react-native-webview)
+      tsconfig.json        # TypeScript config
+      .gitignore           # Ignores node_modules, .expo, builds
 ```
 
-**Key dependencies installed:**
+**Key dependencies (auto-installed with yarn):**
 
 | Package | Version | Purpose |
 |---------|---------|---------|
@@ -123,26 +125,61 @@ mobile/
 | `react-native-screens` | ~4.24.0 | Native screen containers |
 | `react-native-safe-area-context` | ~5.7.0 | Safe area handling |
 
+**Note:** Dependencies are automatically installed with `yarn` during `jac setup mobile`.
+
 **Configuration added to `jac.toml`:**
 
 ```toml
 [mobile]
 name = "my-app"
-identifier = "com.example.myapp"
+bundle_id = "com.example.myapp"
 version = "1.0.0"
-enabled = true
+display_name = "My App"
+slug = "my-app"
+scheme = "myapp"
 
 [mobile.platforms]
 ios = true
 android = true
 
 [mobile.features]
-webview_debugging = true
-local_storage = true
-camera = false
-geolocation = false
-push_notifications = false
+use_sidecar = false
+api_url = ""
+
+# Expo app configuration (generates app.json)
+[mobile.expo]
+orientation = "portrait"
+userInterfaceStyle = "light"
+icon = "./assets/icon.png"
+
+[mobile.expo.splash]
+image = "./assets/splash.png"
+resizeMode = "contain"
+backgroundColor = "#ffffff"
+
+[mobile.expo.ios]
+supportsTablet = true
+
+[mobile.expo.android.adaptiveIcon]
+foregroundImage = "./assets/adaptive-icon.png"
+backgroundColor = "#ffffff"
+
+[mobile.expo.web]
+favicon = "./assets/favicon.png"
+
+# EAS Build profiles (generates eas.json)
+[mobile.eas.profiles.development]
+distribution = "internal"
+developmentClient = true
+
+[mobile.eas.profiles.preview]
+distribution = "internal"
+
+[mobile.eas.profiles.production]
+distribution = "store"
 ```
+
+**Note:** The `app.json` and `eas.json` files are now generated from this TOML configuration, making it easier to version control and maintain your mobile app configuration in one place.
 
 ---
 
@@ -337,30 +374,70 @@ Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
 Access-Control-Allow-Headers = "Content-Type, Authorization"
 ```
 
-### EAS Build Profiles (auto-generated)
+### EAS Build Profiles (auto-generated from TOML)
 
-The `eas.json` file is generated from `jac.toml` configuration with three default profiles:
+The `eas.json` file is **automatically generated** from your `jac.toml` configuration with three default profiles. You no longer need to maintain a separate `eas.json` file!
+
+**Default profiles defined in `jac.toml`:**
+
+```toml
+[mobile.eas.profiles.development]
+distribution = "internal"
+developmentClient = true
+
+[mobile.eas.profiles.preview]
+distribution = "internal"
+
+[mobile.eas.profiles.production]
+distribution = "store"
+```
+
+**Generated `eas.json`:**
 
 ```json
 {
-  "cli": { "version": ">= 3.0.0" },
+  "cli": { "version": ">= 13.2.0" },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleDebug",
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Debug"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleRelease",
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      }
     },
-    "production": {}
+    "production": {
+      "distribution": "store",
+      "android": {
+        "gradleCommand": ":app:bundleRelease",
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false,
+        "buildConfiguration": "Release"
+      }
+    }
   },
-  "submit": {
-    "production": {}
-  }
+  "submit": {}
 }
 ```
 
-Custom EAS profiles can be defined in `jac.toml` under `[mobile.eas.profiles]` and will be deep-merged with these defaults.
+Custom EAS profiles can be defined in `jac.toml` under `[mobile.eas.profiles.YOUR_PROFILE_NAME]` and will be deep-merged with these defaults.
 
 ---
 
@@ -371,33 +448,39 @@ After `jac setup mobile`, the project looks like:
 ```
 my-app/
   main.jac                    # Jac entry point
-  jac.toml                    # Project configuration
+  jac.toml                    # Project configuration (includes mobile config)
   .jac/
     client/
       dist/                   # ViteBundler output (HTML + CSS + JS)
-  mobile/                     # React Native/Expo project
-    app/
-      index.tsx               # WebView screen (main app screen)
-      _layout.tsx             # Expo Router root layout
-    assets/
-      icon.png                # App icon
-      splash.png              # Splash screen
-      adaptive-icon.png       # Android adaptive icon
-      favicon.png             # Web favicon
-      jac-app/
-        index.html            # Copied from Vite build
-        styles.css            # Copied from Vite build
-        client.js             # Copied from Vite build (largest JS)
-        bundle.html           # Standalone HTML (for debugging)
-        bundle.ts             # Importable HTML string (used by WebView)
-        create-bundle.js      # Bundle creation script
-    app.json                  # Expo configuration
-    package.json              # npm dependencies
-    tsconfig.json             # TypeScript config
-    eas.json                  # EAS build profiles
-    dev-config.json           # Dev server IP config (auto-generated)
-    node_modules/             # npm packages
+      mobile/                 # React Native/Expo project (NEW LOCATION)
+        app/
+          index.tsx           # WebView screen (main app screen)
+          _layout.tsx         # Expo Router root layout
+        assets/
+          icon.png            # App icon
+          splash.png          # Splash screen
+          adaptive-icon.png   # Android adaptive icon
+          favicon.png         # Web favicon
+          jac-app/
+            index.html        # Copied from Vite build
+            styles.css        # Copied from Vite build
+            client.js         # Copied from Vite build (largest JS)
+            bundle.html       # Standalone HTML (for debugging)
+            bundle.ts         # Importable HTML string (used by WebView)
+            create-bundle.js  # Bundle creation script
+        app.json              # Expo configuration (generated from jac.toml)
+        eas.json              # EAS build profiles (generated from jac.toml)
+        package.json          # npm dependencies
+        tsconfig.json         # TypeScript config
+        dev-config.json       # Dev server IP config (auto-generated)
+        node_modules/         # npm packages
 ```
+
+**Key Changes:**
+- Mobile artifacts now live in `.jac/client/mobile/` instead of `mobile/`
+- `app.json` is generated from `[mobile.expo]` section in `jac.toml`
+- `eas.json` is generated from `[mobile.eas]` section in `jac.toml`
+- All mobile configuration is centralized in `jac.toml`
 
 ---
 
