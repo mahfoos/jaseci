@@ -72,7 +72,7 @@ cd my-app
 jac setup mobile
 
 # 3. Install mobile dependencies (auto-installed during setup)
-# If needed manually: cd .jac/client/mobile && yarn install && cd ../../..
+# If needed manually: cd mobile && yarn install && cd ..
 
 # 4. Start dev server (with hot reload)
 jac start --client mobile --dev
@@ -94,24 +94,24 @@ This command creates the entire React Native/Expo project structure inside a `mo
 **What gets generated:**
 
 ```
-.jac/
-  client/
-    mobile/
-      app/
-        index.tsx          # WebView screen component (main app)
-        _layout.tsx        # Expo Router layout (uses <Slot />)
-      assets/
-        icon.png           # App icon (1024x1024)
-        splash.png         # Splash screen image
-        adaptive-icon.png  # Android adaptive icon
-        favicon.png        # Web favicon
-        jac-app/
-          create-bundle.js # Bundle creation script
-      app.json             # Expo configuration (generated from jac.toml)
-      package.json         # Dependencies (expo, react-native, react-native-webview)
-      tsconfig.json        # TypeScript config
-      .gitignore           # Ignores node_modules, .expo, builds
+mobile/
+  app/
+    index.tsx          # WebView screen component (main app)
+    _layout.tsx        # Expo Router layout (uses <Slot />)
+  assets/
+    icon.png           # App icon (1024x1024)
+    splash.png         # Splash screen image
+    adaptive-icon.png  # Android adaptive icon
+    favicon.png        # Web favicon
+    jac-app/
+      create-bundle.js # Bundle creation script
+  app.json             # Expo configuration (generated from jac.toml)
+  package.json         # Dependencies (expo, react-native, react-native-webview)
+  tsconfig.json        # TypeScript config
+  .gitignore           # Ignores node_modules, .expo, builds
 ```
+
+**Note:** Similar to desktop's `src-tauri/` directory, `mobile/` is created in the project root.
 
 **Key dependencies (auto-installed with yarn):**
 
@@ -449,38 +449,40 @@ After `jac setup mobile`, the project looks like:
 my-app/
   main.jac                    # Jac entry point
   jac.toml                    # Project configuration (includes mobile config)
+  mobile/                     # React Native/Expo project (like desktop's src-tauri/)
+    app/
+      index.tsx               # WebView screen (main app screen)
+      _layout.tsx             # Expo Router root layout
+    assets/
+      icon.png                # App icon
+      splash.png              # Splash screen
+      adaptive-icon.png       # Android adaptive icon
+      favicon.png             # Web favicon
+      jac-app/
+        index.html            # Copied from Vite build
+        styles.css            # Copied from Vite build
+        client.js             # Copied from Vite build (largest JS)
+        bundle.html           # Standalone HTML (for debugging)
+        bundle.ts             # Importable HTML string (used by WebView)
+        create-bundle.js      # Bundle creation script
+    app.json                  # Expo configuration (generated from jac.toml)
+    eas.json                  # EAS build profiles (generated from jac.toml)
+    package.json              # Dependencies
+    tsconfig.json             # TypeScript config
+    dev-config.json           # Dev server IP config (auto-generated)
+    node_modules/             # Installed dependencies (gitignored)
   .jac/
     client/
       dist/                   # ViteBundler output (HTML + CSS + JS)
-      mobile/                 # React Native/Expo project (NEW LOCATION)
-        app/
-          index.tsx           # WebView screen (main app screen)
-          _layout.tsx         # Expo Router root layout
-        assets/
-          icon.png            # App icon
-          splash.png          # Splash screen
-          adaptive-icon.png   # Android adaptive icon
-          favicon.png         # Web favicon
-          jac-app/
-            index.html        # Copied from Vite build
-            styles.css        # Copied from Vite build
-            client.js         # Copied from Vite build (largest JS)
-            bundle.html       # Standalone HTML (for debugging)
-            bundle.ts         # Importable HTML string (used by WebView)
-            create-bundle.js  # Bundle creation script
-        app.json              # Expo configuration (generated from jac.toml)
-        eas.json              # EAS build profiles (generated from jac.toml)
-        package.json          # npm dependencies
-        tsconfig.json         # TypeScript config
-        dev-config.json       # Dev server IP config (auto-generated)
-        node_modules/         # npm packages
+      compiled/               # Compiled Jac code
 ```
 
-**Key Changes:**
-- Mobile artifacts now live in `.jac/client/mobile/` instead of `mobile/`
+**Key Points:**
+- `mobile/` directory in project root (similar to desktop's `src-tauri/`)
 - `app.json` is generated from `[mobile.expo]` section in `jac.toml`
 - `eas.json` is generated from `[mobile.eas]` section in `jac.toml`
 - All mobile configuration is centralized in `jac.toml`
+- Dependencies auto-installed with yarn during setup
 
 ---
 

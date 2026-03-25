@@ -65,7 +65,7 @@ impl MobileConfig.get_default_config(self: MobileConfig) -> dict[str, Any] {
             'web': {
                 'favicon': './assets/favicon.png'
             },
-            'plugins': ['expo-router', 'expo-dev-client']
+            'plugins': ['expo-router']
         }
     };
 }
