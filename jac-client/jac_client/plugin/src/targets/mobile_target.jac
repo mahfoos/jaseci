@@ -13,7 +13,7 @@ obj MobileTarget(WebTarget) {
         default: bool = False,
         requires_setup: bool = True,
         config_section: str = "mobile",
-        output_dir: Path = Path("mobile/build");
+        output_dir: Path = Path(".jac/client/mobile");
 
     """Setup mobile target - scaffold React Native project structure."""
     override def setup(project_dir: Path) -> None;
