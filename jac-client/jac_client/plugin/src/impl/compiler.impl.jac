@@ -465,7 +465,7 @@ impl ViteCompiler._generate_routes_manifest(self: ViteCompiler) -> None {
         } except ValueError {
             rel_path = route.file_path.relative_to(scanner.pages_dir.parent);
         }
-        rel_str = self._jac_path_to_js(str(rel_path));
+        rel_str = self._jac_path_to_js(str(rel_path)).replace("\\", "/");
         lines.append(
             f'import {{ page as {route.component_import} }} from "./{rel_str}";'
         );
@@ -477,7 +477,7 @@ impl ViteCompiler._generate_routes_manifest(self: ViteCompiler) -> None {
         } except ValueError {
             rel_path = layout.file_path.relative_to(scanner.pages_dir.parent);
         }
-        rel_str = self._jac_path_to_js(str(rel_path));
+        rel_str = self._jac_path_to_js(str(rel_path)).replace("\\", "/");
         lines.append(
             f'import {{ layout as {layout.component_import} }} from "./{rel_str}";'
         );
