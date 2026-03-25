@@ -45,29 +45,16 @@ def _get_local_ip() -> str {
 
 """Setup mobile target - scaffold React Native/Expo project structure."""
 impl MobileTarget.setup(project_dir: Path) -> None {
-    # Define mobile_dir in .jac/client/mobile/ instead of project_dir/mobile/
-    jac_dir = project_dir / ".jac";
-    client_dir = jac_dir / "client";
-    mobile_dir = client_dir / "mobile";
+    # Define mobile_dir - similar to desktop's src-tauri/
+    mobile_dir = project_dir / "mobile";
 
     console.print("\n📱 Setting up mobile target (React Native/Expo)", style="bold");
     console.print(f"  Project directory: {project_dir}", style="muted");
-    console.print(f"  Mobile artifacts will be in: .jac/client/mobile/", style="muted");
 
     # Check if already set up
     if mobile_dir.exists() {
         console.warning("Mobile target already set up. Skipping...");
         return;
-    }
-
-    # Ensure .jac/client directory exists
-    if not client_dir.exists() {
-        try {
-            client_dir.mkdir(parents=True, exist_ok=True);
-            console.print(f"  ✔ Created {client_dir}", style="success");
-        } except Exception as e {
-            raise RuntimeError(f"Failed to create client directory: {e}") ;
-        }
     }
 
     # Ensure project directory exists
@@ -80,7 +67,7 @@ impl MobileTarget.setup(project_dir: Path) -> None {
     }
 
     # Create mobile directory structure
-    console.print("  Creating .jac/client/mobile/ directory structure...", style="muted");
+    console.print("  Creating mobile/ directory structure...", style="muted");
     try {
         mobile_dir.mkdir(parents=True, exist_ok=True);
         (mobile_dir / "app").mkdir(exist_ok=True);
@@ -270,7 +257,7 @@ def _generate_app_json(
             "web": {
                 "favicon": "./assets/favicon.png"
             },
-            "plugins": ["expo-router", "expo-dev-client"]
+            "plugins": ["expo-router"]
         }
     };
 
@@ -300,9 +287,6 @@ def _generate_package_json(mobile_dir: Path, name: str) -> None {
             "expo-router": "~6.0.23",
             "expo-linking": "~8.0.0",
             "expo-status-bar": "~3.0.9",
-            "expo-dev-client": "~6.1.2",
-            "expo-constants": "~18.0.13",
-            "@expo/metro-runtime": "~6.1.2",
             "react": "19.2.4",
             "react-dom": "19.2.4",
             "react-freeze": "~1.0.4",
@@ -1000,8 +984,8 @@ impl MobileTarget.build(
     import from jac_client.plugin.src.vite_bundler { ViteBundler }
     console.print("\n📱 Building mobile app (React Native)", style="bold");
 
-    # Check if setup has been run - mobile artifacts are in .jac/client/mobile/
-    mobile_dir = project_dir / ".jac" / "client" / "mobile";
+    # Check if setup has been run - mobile directory in project root like desktop's src-tauri/
+    mobile_dir = project_dir / "mobile";
     if not mobile_dir.exists() {
         raise RuntimeError(
             "Mobile target not set up. Run 'jac setup mobile' first."
@@ -1197,8 +1181,8 @@ impl MobileTarget.dev(
     import sys;
     console.print("\n📱 Starting mobile dev server (Expo)", style="bold");
 
-    # Check if setup has been run - mobile artifacts are in .jac/client/mobile/
-    mobile_dir = project_dir / ".jac" / "client" / "mobile";
+    # Check if setup has been run - mobile directory in project root like desktop's src-tauri/
+    mobile_dir = project_dir / "mobile";
     if not mobile_dir.exists() {
         raise RuntimeError(
             "Mobile target not set up. Run 'jac setup mobile' first."

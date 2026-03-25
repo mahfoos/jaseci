@@ -479,7 +479,7 @@ def _handle_start_target(ctx: HookContext) -> None {
             if target_name == "desktop" {
                 setup_dir = project_dir / "src-tauri";
             } elif target_name == "mobile" {
-                setup_dir = project_dir / ".jac" / "client" / "mobile";
+                setup_dir = project_dir / "mobile";
             }
 
             if setup_dir and not setup_dir.exists() {
@@ -602,7 +602,7 @@ def _handle_setup_target(ctx: HookContext) -> None {
             }
         }
         if target_name == "mobile" {
-            mobile_dir = project_dir / ".jac" / "client" / "mobile";
+            mobile_dir = project_dir / "mobile";
             if not mobile_dir.exists() {
                 console.error(
                     f"Setup completed but mobile directory not found at: {mobile_dir}"
