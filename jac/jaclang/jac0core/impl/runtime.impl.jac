@@ -142,6 +142,7 @@ impl JacAccessValidation.check_access_level(
 impl JacNode.get_edges(
     origin: list[NodeArchetype], destination: ObjectSpatialDestination
 ) -> list[EdgeArchetype] {
+    _prefetch_edges(origin);
     edges: OrderedDict[(EdgeAnchor, EdgeArchetype)] = OrderedDict();
     for nd in origin {
         nanch = nd.__jac__;
@@ -181,6 +182,7 @@ impl JacNode.get_edges_with_node(
     destination: ObjectSpatialDestination,
     from_visit: bool = False
 ) -> list[(EdgeArchetype | NodeArchetype)] {
+    _prefetch_edges(origin);
     loc: OrderedDict[((NodeAnchor | EdgeAnchor), (NodeArchetype | EdgeArchetype))] = OrderedDict();
     for nd in origin {
         nanch = nd.__jac__;
@@ -220,6 +222,7 @@ impl JacNode.get_edges_with_node(
 impl JacNode.edges_to_nodes(
     origin: list[NodeArchetype], destination: ObjectSpatialDestination
 ) -> list[NodeArchetype] {
+    _prefetch_edges(origin);
     nodes: OrderedDict[(NodeAnchor, NodeArchetype)] = OrderedDict();
     for nd in origin {
         nanch = nd.__jac__;
@@ -258,7 +261,6 @@ impl JacNode.remove_edge(nd: NodeAnchor, `edge: EdgeAnchor) -> None {
     for (idx, ed) in enumerate(nd.edges) {
         if (ed.id == `edge.id) {
             nd.edges.pop(idx);
-            nd.is_updated = True;
             break;
         }
     }
@@ -803,7 +805,7 @@ impl JacBuiltin.printgraph(
     edge_type = edge_type or [];
     visited_nodes: list[NodeArchetype] = [];
     node_depths: dict[(NodeArchetype, int)] = {nd: 0};
-    queue: list = [[nd, 0]];
+    queue: list[tuple[NodeArchetype, int]] = [(nd, 0)];
     connections: list[tuple[(NodeArchetype, NodeArchetype, EdgeArchetype)]] = [];
     """Depth first search.""";
     def dfs(nd: NodeArchetype, cur_depth: int) -> None {
@@ -905,10 +907,12 @@ impl JacBasics.get_context -> ExecutionContext {
     }
 
     # Fallback to global context (CLI, tests, non-web environments)
-    if (JacRuntime.exec_ctx is None) {
-        JacRuntime.exec_ctx = JacRuntimeInterface.create_j_context(user_root=None);
+    ctx = JacRuntime.exec_ctx;
+    if ctx is None {
+        ctx = JacRuntimeInterface.create_j_context(user_root=None);
+        JacRuntime.exec_ctx = ctx;
     }
-    return JacRuntime.exec_ctx;
+    return ctx;
 }
 
 """Commit all data from memory to datasource."""
@@ -950,7 +954,6 @@ impl JacBasics.reset_graph(root: (Root | None) = None) -> int {
         for e in ranchor.edges
         if (e.id not in deleted_ids)
     ];
-    ranchor.is_updated = True;
     mem.commit(ranchor);
     return deleted_count;
 }
@@ -1548,8 +1551,6 @@ impl JacBasics.build_edge(
         );
         source.edges.append(eanch);
         target.edges.append(eanch);
-        source.is_updated = True;
-        target.is_updated = True;
         if conn_assign {
             for (fld, val) in zip(conn_assign[0], conn_assign[1], strict=False) {
                 if hasattr(`edge, fld) {

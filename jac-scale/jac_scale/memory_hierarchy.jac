@@ -69,6 +69,7 @@ obj RedisBackend(CacheMemory) {
     ) -> (Anchor | None);
 
     def commit(anchor: (Anchor | None) = None) -> None;
+    def batch_get(ids: list[UUID]) -> dict[UUID, Anchor];
     # CacheMemory-specific
     def exists(id: UUID) -> bool;
     def put_if_exists(anchor: Anchor) -> bool;
@@ -113,6 +114,7 @@ obj MongoBackend(PersistentMemory) {
     ) -> (Anchor | None);
 
     def commit(anchor: (Anchor | None) = None) -> None;
+    def batch_get(ids: list[UUID]) -> dict[UUID, Anchor];
     # PersistentMemory-specific
     def sync -> None;
     def bulk_put(anchors: Iterable[Anchor]) -> None;
@@ -147,4 +149,5 @@ obj ScaleTieredMemory(TieredMemory) {
     def postinit -> None;
     def commit(anchor: (Anchor | None) = None) -> None;
     def close -> None;
+    def batch_get(ids: list[UUID]) -> dict[UUID, Anchor];
 }

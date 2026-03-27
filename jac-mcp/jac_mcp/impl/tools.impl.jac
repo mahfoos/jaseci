@@ -141,6 +141,161 @@ impl ToolProvider.list_tools -> list[dict[str, Any]] {
                 "required": ["code"]
             }
         },
+        {
+            "name": "lint_jac",
+            "description": "Lint Jac code to detect style violations, unused symbols, undefined names, unreachable code, and other issues. Supports 30+ lint rules (W3001-W3036). Use auto_fix=true to automatically fix violations and return corrected code.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Jac source code to lint"
+                    },
+                    "auto_fix": {
+                        "type": "boolean",
+                        "description": "Auto-fix lint violations and return corrected code",
+                        "default": False
+                    }
+                },
+                "required": ["code"]
+            }
+        },
+        {
+            "name": "jac_to_py",
+            "description": "Convert Jac code to Python using the official compiler transpiler. Useful for understanding what Python code Jac compiles to, or for debugging. The output shows the generated Python equivalent of the Jac source.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Jac source code to convert to Python"
+                    }
+                },
+                "required": ["code"]
+            }
+        },
+        {
+            "name": "jac_to_js",
+            "description": "Convert Jac code to JavaScript/ECMAScript using the official compiler transpiler. Critical for jac-client full-stack development to understand what JS is generated from .cl.jac client code.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Jac source code to convert to JavaScript"
+                    }
+                },
+                "required": ["code"]
+            }
+        },
+        {
+            "name": "run_jac",
+            "description": "Execute Jac code and return stdout/stderr output. Use this to verify runtime behavior after validation. Supports running the whole module or a specific entrypoint (walker or function). Code runs in a sandboxed environment with a timeout.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Jac source code to execute"
+                    },
+                    "entrypoint": {
+                        "type": "string",
+                        "description": "Optional specific walker or function to invoke (like jac enter)",
+                        "default": ""
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Max execution time in seconds",
+                        "default": 10
+                    }
+                },
+                "required": ["code"]
+            }
+        },
+        {
+            "name": "graph_visualize",
+            "description": "Execute Jac code and generate a graph visualization of the resulting object-spatial graph. Returns DOT or JSON format. Essential for debugging walker traversal, node connectivity, and data flow in Jac's graph-based programming model.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Jac source code that builds a graph"
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format: dot or json",
+                        "default": "dot",
+                        "enum": ["dot", "json"]
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Max traversal depth (-1 for unlimited)",
+                        "default": -1
+                    },
+                    "bfs": {
+                        "type": "boolean",
+                        "description": "Use breadth-first search (true) or depth-first (false)",
+                        "default": True
+                    },
+                    "edge_limit": {
+                        "type": "integer",
+                        "description": "Max edges to include",
+                        "default": 512
+                    },
+                    "node_limit": {
+                        "type": "integer",
+                        "description": "Max nodes to include",
+                        "default": 512
+                    }
+                },
+                "required": ["code"]
+            }
+        },
+        {
+            "name": "list_commands",
+            "description": "List all available jac CLI commands including plugin-provided ones. Returns name, help, group, source, and extended_by for each command. Call get_command(name) to get full argument details before executing.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "get_command",
+            "description": "Get full details for a specific jac CLI command including all arguments (name, type, kind, required, default, help). Use this after list_commands to get the argument spec before calling execute_command.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The command name (e.g. 'run', 'check', 'add')"
+                    }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "execute_command",
+            "description": "Execute a jac CLI command by name with optional arguments. Use list_commands to discover commands, get_command(name) to get its argument spec, then call this. Arguments are passed as a list of strings exactly as you would type them on the command line (e.g. ['hello.jac', '--no-cache']).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The jac command to run (e.g. 'run', 'check', 'format', 'test')"
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Arguments to pass to the command, as a list of strings (e.g. ['hello.jac', '--no-cache'])",
+                        "default": []
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Max execution time in seconds",
+                        "default": 30
+                    }
+                },
+                "required": ["command"]
+            }
+        },
 
     ];
 }
@@ -203,6 +358,60 @@ impl ToolProvider.call_tool(name: str, arguments: dict[str, Any]) -> dict[str, A
                 return {"error": "Missing required argument: code"};
             }
             return get_ast(code, fmt);
+        } elif name == "lint_jac" {
+            code = arguments.get("code", "");
+            auto_fix = arguments.get("auto_fix", False);
+            if not code {
+                return {"error": "Missing required argument: code"};
+            }
+            return lint_jac(code, auto_fix);
+        } elif name == "jac_to_py" {
+            code = arguments.get("code", "");
+            if not code {
+                return {"error": "Missing required argument: code"};
+            }
+            return jac_to_py(code);
+        } elif name == "jac_to_js" {
+            code = arguments.get("code", "");
+            if not code {
+                return {"error": "Missing required argument: code"};
+            }
+            return jac_to_js(code);
+        } elif name == "run_jac" {
+            code = arguments.get("code", "");
+            entrypoint = arguments.get("entrypoint", "");
+            timeout = arguments.get("timeout", 10);
+            if not code {
+                return {"error": "Missing required argument: code"};
+            }
+            return run_jac(code, entrypoint, timeout);
+        } elif name == "graph_visualize" {
+            code = arguments.get("code", "");
+            fmt = arguments.get("format", "dot");
+            depth = arguments.get("depth", -1);
+            bfs = arguments.get("bfs", True);
+            edge_limit = arguments.get("edge_limit", 512);
+            node_limit = arguments.get("node_limit", 512);
+            if not code {
+                return {"error": "Missing required argument: code"};
+            }
+            return graph_visualize(code, fmt, depth, bfs, edge_limit, node_limit);
+        } elif name == "list_commands" {
+            return list_commands();
+        } elif name == "get_command" {
+            cmd_name = arguments.get("name", "");
+            if not cmd_name {
+                return {"error": "Missing required argument: name"};
+            }
+            return get_command(cmd_name);
+        } elif name == "execute_command" {
+            cmd_name = arguments.get("command", "");
+            cmd_args = arguments.get("args", []);
+            cmd_timeout = arguments.get("timeout", 30);
+            if not cmd_name {
+                return {"error": "Missing required argument: command"};
+            }
+            return execute_command(cmd_name, cmd_args, cmd_timeout);
         } else {
             return {"error": f"Unknown tool: {name}"};
         }
@@ -398,4 +607,204 @@ impl search_docs(query: str, limit: int = 5) -> dict[str, Any] {
 impl get_ast(code: str, fmt: str = "tree") -> dict[str, Any] {
     import from jac_mcp.compiler_bridge { CompilerBridge }
     return CompilerBridge.get_ast_snippet(code, fmt);
+}
+
+"""Lint Jac code with optional auto-fix."""
+impl lint_jac(code: str, auto_fix: bool = False) -> dict[str, Any] {
+    import from jac_mcp.compiler_bridge { CompilerBridge }
+    return CompilerBridge.lint_snippet(code, auto_fix);
+}
+
+"""Convert Jac code to Python."""
+impl jac_to_py(code: str) -> dict[str, Any] {
+    import from jac_mcp.compiler_bridge { CompilerBridge }
+    return CompilerBridge.jac_to_py(code);
+}
+
+"""Convert Jac code to JavaScript."""
+impl jac_to_js(code: str) -> dict[str, Any] {
+    import from jac_mcp.compiler_bridge { CompilerBridge }
+    return CompilerBridge.jac_to_js(code);
+}
+
+"""Execute Jac code and return output."""
+impl run_jac(code: str, entrypoint: str = "", timeout: int = 10) -> dict[str, Any] {
+    import from jac_mcp.compiler_bridge { CompilerBridge }
+    return CompilerBridge.run_snippet(code, entrypoint, timeout);
+}
+
+"""Generate graph visualization from Jac code."""
+impl graph_visualize(
+    code: str,
+    format: str = "dot",
+    depth: int = -1,
+    bfs: bool = True,
+    edge_limit: int = 512,
+    node_limit: int = 512
+) -> dict[str, Any] {
+    import from jac_mcp.compiler_bridge { CompilerBridge }
+    return CompilerBridge.graph_viz_snippet(
+        code, format, depth, bfs, edge_limit, node_limit
+    );
+}
+
+"""List all available jac CLI commands including those from installed plugins."""
+impl list_commands -> dict[str, Any] {
+    try {
+        import from jaclang.jac0core.runtime { JacRuntime as Jac }
+        import from jaclang.cli.registry { get_registry }
+        import jaclang.cli.commands;
+
+        # Trigger plugin command registrations, same hook the CLI calls at startup
+        Jac.create_cmd();
+
+        registry = get_registry();
+        if not registry._finalized {
+            registry.finalize();
+        }
+
+        commands: list[dict[str, Any]] = [];
+        for spec in registry.get_all() {
+            # Collect unique plugin sources that extend this command
+            extensions: list[str] = [];
+            seen_ext: set = set();
+            for arg in spec.extra_args {
+                if arg.source != spec.source and arg.source not in seen_ext {
+                    seen_ext.add(arg.source);
+                    extensions.append(arg.source);
+                }
+            }
+
+            cmd: dict[str, Any] = {
+                "name": spec.name,
+                "help": spec.help,
+                "group": spec.group,
+                "source": spec.source
+            };
+            if extensions {
+                cmd["extended_by"] = extensions;
+            }
+            commands.append(cmd);
+        }
+
+        commands.sort(key=lambda c : (c["group"], c["name"]));
+
+        return {
+            "commands": commands,
+            "groups": registry.get_groups(),
+            "total": len(commands)
+        };
+    } except Exception as e {
+        return {"error": f"Failed to list commands: {str(e)}"};
+    }
+}
+
+"""Get full argument details for a specific jac CLI command."""
+impl get_command(name: str) -> dict[str, Any] {
+    try {
+        import from jaclang.jac0core.runtime { JacRuntime as Jac }
+        import from jaclang.cli.registry { get_registry }
+        import jaclang.cli.commands;
+
+        Jac.create_cmd();
+        registry = get_registry();
+        if not registry._finalized {
+            registry.finalize();
+        }
+
+        spec = registry.get(name);
+        if spec is None {
+            return {"error": f"Command not found: {name}"};
+        }
+
+        args: list[dict[str, Any]] = [];
+        seen_args: set = set();
+        for arg in spec.get_all_args() {
+            if arg.name in seen_args {
+                continue;
+            }
+            seen_args.add(arg.name);
+            type_name: str;
+            if hasattr(arg.typ, "__name__") {
+                type_name = arg.typ.__name__;
+            } else {
+                type_name = str(arg.typ);
+            }
+            arg_info: dict[str, Any] = {
+                "name": arg.name,
+                "kind": arg.kind.name,
+                "type": type_name,
+                "required": arg.required,
+                "default": arg.default,
+                "help": arg.help,
+                "source": arg.source
+            };
+            if arg.short is not None {
+                arg_info["short"] = arg.short;
+            }
+            if arg.choices is not None {
+                arg_info["choices"] = arg.choices;
+            }
+            args.append(arg_info);
+        }
+
+        extensions: list[str] = [];
+        seen_ext: set = set();
+        for arg in spec.extra_args {
+            if arg.source != spec.source and arg.source not in seen_ext {
+                seen_ext.add(arg.source);
+                extensions.append(arg.source);
+            }
+        }
+
+        result: dict[str, Any] = {
+            "name": spec.name,
+            "help": spec.help,
+            "group": spec.group,
+            "source": spec.source,
+            "args": args
+        };
+        if extensions {
+            result["extended_by"] = extensions;
+        }
+        return result;
+    } except Exception as e {
+        return {"error": f"Failed to get command: {str(e)}"};
+    }
+}
+
+"""Execute a jac CLI command by name with optional arguments."""
+impl execute_command(
+    command: str, args: list[str] | None = None, timeout: int = 30
+) -> dict[str, Any] {
+    import subprocess;
+    import sys;
+
+    cmd_args: list[str] = [sys.executable, "-m", "jaclang", command] + (args or []);
+    try {
+        result = subprocess.run(
+            cmd_args, capture_output=True, text=True, timeout=timeout
+        );
+        return {
+            "success": result.returncode == 0,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "command": f"jac {command} {' '.join(args or [])}"
+        };
+    } except subprocess.TimeoutExpired {
+        return {
+            "success": False,
+            "exit_code": -1,
+            "error": f"Command timed out after {timeout}s",
+            "command": f"jac {command} {' '.join(args or [])}"
+        };
+    } except Exception as e {
+        return {
+            "success": False,
+            "exit_code": -1,
+            "error": f"Failed to execute command: {str(e)}",
+            "command": f"jac {command} {' '.join(args or [])}"
+        };
+    }
 }
