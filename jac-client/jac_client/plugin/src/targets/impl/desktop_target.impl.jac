@@ -2012,17 +2012,27 @@ def _add_sidecar_to_config(tauri_dir: Path, config: dict) -> None {
     }
 
     # Find sidecar wrapper script (must exist and be executable)
+    # Support both onefile (single binary) and onedir (directory with binary + libs)
     sidecar_files = [];
-    for pattern in [
-        "jac-sidecar.sh",
-        "jac-sidecar.bat",
-        "jac-sidecar",
-        "jac-sidecar.exe"
-    ] {
-        found = list(binaries_dir.glob(pattern));
-        for f in found {
-            if f.is_file() and f.exists() {
-                sidecar_files.append(f);
+
+    # Check for onedir mode: binaries/jac-sidecar/ directory
+    onedir_path = binaries_dir / "jac-sidecar";
+    if onedir_path.exists() and onedir_path.is_dir() {
+        # Add the entire directory for onedir mode
+        sidecar_files.append(onedir_path);
+    } else {
+        # Check for onefile mode: single binary files
+        for pattern in [
+            "jac-sidecar.sh",
+            "jac-sidecar.bat",
+            "jac-sidecar",
+            "jac-sidecar.exe"
+        ] {
+            found = list(binaries_dir.glob(pattern));
+            for f in found {
+                if f.is_file() and f.exists() {
+                    sidecar_files.append(f);
+                }
             }
         }
     }
@@ -2055,7 +2065,12 @@ def _add_sidecar_to_config(tauri_dir: Path, config: dict) -> None {
     # Add sidecar binary path (relative to tauri_dir)
     for sidecar_file in sidecar_files {
         rel_path = sidecar_file.relative_to(tauri_dir);
-        rel_str = str(rel_path.as_posix());
+        # For directories (onedir mode), use glob pattern to include all files
+        if sidecar_file.is_dir() {
+            rel_str = str(rel_path.as_posix()) + "/**/*";
+        } else {
+            rel_str = str(rel_path.as_posix());
+        }
         if rel_str not in config["bundle"]["resources"] {
             config["bundle"]["resources"].append(rel_str);
             console.print(f"  ✔ Added sidecar to config: {rel_str}", style="success");
@@ -2691,9 +2706,45 @@ if __name__ == "__main__":
         }
     }
 
+    # Create runtime hook for jaclang bytecode resolution in frozen app
+    runtime_hook_path = tauri_dir / "runtime_hook_jaclang.py";
+    with open(runtime_hook_path, "w") as f {
+        f.write('''"""
+PyInstaller runtime hook for jaclang bytecode resolution.
+
+This hook ensures that jaclang can find its _precompiled bytecode directory
+when running in a PyInstaller frozen app.
+"""
+import sys
+import os
+from pathlib import Path
+
+# When frozen, PyInstaller extracts files to sys._MEIPASS
+if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+    # Set environment variable to help jaclang find its precompiled bytecode
+    meipass = Path(sys._MEIPASS)
+
+    # The jaclang package should be in _MEIPASS/jaclang
+    jaclang_path = meipass / 'jaclang'
+    if jaclang_path.exists():
+        # Set an environment variable that jaclang can use to locate its bytecode
+        os.environ['JACLANG_BUNDLE_PATH'] = str(jaclang_path)
+
+        # Also ensure the _precompiled directory is accessible
+        precompiled = jaclang_path / '_precompiled'
+        if precompiled.exists():
+            os.environ['JACLANG_PRECOMPILED_PATH'] = str(precompiled)
+            sys.stderr.write(f"[PyInstaller] Jaclang precompiled bytecode found at: {precompiled}\\n")
+        else:
+            sys.stderr.write(f"[PyInstaller] Warning: Jaclang precompiled directory not found at: {precompiled}\\n")
+    else:
+        sys.stderr.write(f"[PyInstaller] Warning: Jaclang package not found in bundle at: {jaclang_path}\\n")
+''');
+    }
+
     # Create PyInstaller spec file
     spec_path = tauri_dir / "jac-sidecar.spec";
-    spec_content = _generate_pyinstaller_spec(entry_script, project_dir, binary_name, plugins_config);
+    spec_content = _generate_pyinstaller_spec(entry_script, project_dir, binary_name, runtime_hook_path, plugins_config);
     with open(spec_path, "w") as f {
         f.write(spec_content);
     }
@@ -2705,6 +2756,14 @@ if __name__ == "__main__":
     );
     dist_dir = tauri_dir / "dist";
     build_dir = tauri_dir / "build";
+
+    # Clean dist and build directories to avoid conflicts
+    if dist_dir.exists() {
+        shutil.rmtree(dist_dir);
+    }
+    if build_dir.exists() {
+        shutil.rmtree(build_dir);
+    }
 
     try {
         result = subprocess.run(
@@ -2733,30 +2792,34 @@ if __name__ == "__main__":
 
         # Find the bundled binary
         bundled_binary = dist_dir / binary_name;
-        if not bundled_binary.exists() {
+        is_onedir = False;
+        if not bundled_binary.is_file() {
             # Check if it's in a subdirectory (onedir mode)
             bundled_dir = dist_dir / "jac-sidecar";
-            if bundled_dir.exists() {
+            if bundled_dir.is_dir() {
                 bundled_binary = bundled_dir / binary_name;
+                is_onedir = True;
             }
         }
 
-        if not bundled_binary.exists() {
+        if not bundled_binary.is_file() {
             console.warning(f"Bundled binary not found at {bundled_binary}");
             return None;
         }
 
         # Copy to binaries directory
-        output_path = binaries_dir / binary_name;
-        if bundled_binary.is_file() {
-            shutil.copy2(bundled_binary, output_path);
-        } else {
+        if is_onedir {
             # Copy entire directory for onedir mode
-            if output_path.exists() {
-                shutil.rmtree(output_path);
+            output_dir = binaries_dir / "jac-sidecar";
+            if output_dir.exists() {
+                shutil.rmtree(output_dir);
             }
-            shutil.copytree(bundled_binary.parent, binaries_dir / "jac-sidecar");
-            output_path = binaries_dir / "jac-sidecar" / binary_name;
+            shutil.copytree(bundled_binary.parent, output_dir);
+            output_path = output_dir / binary_name;
+        } else {
+            # Copy single file for onefile mode
+            output_path = binaries_dir / binary_name;
+            shutil.copy2(bundled_binary, output_path);
         }
 
         # Cleanup build artifacts
@@ -2783,7 +2846,7 @@ if __name__ == "__main__":
 """Generate PyInstaller spec file for sidecar bundling."""
 def _generate_pyinstaller_spec(
     entry_script: Path, project_dir: Path, binary_name: str,
-    plugins_config: dict | None = None
+    runtime_hook_path: Path, plugins_config: dict | None = None
 ) -> str {
     # Default plugins config - all enabled
     if plugins_config is None {
@@ -2941,6 +3004,25 @@ if PLUGINS_CONFIG.get('jac_coder', True):
 # Merge collected imports with manual hiddenimports
 hiddenimports.extend(all_hiddenimports)
 
+# Explicitly collect jaclang's _precompiled directory (bytecode .jir files)
+try:
+    import jaclang
+    jaclang_path = Path(jaclang.__file__).parent
+    precompiled_dir = jaclang_path / '_precompiled'
+    if precompiled_dir.exists():
+        # Collect all .jir files and manifest.json
+        jir_count = 0
+        for item in precompiled_dir.rglob('*'):
+            if item.is_file():
+                # Must preserve the full path: jaclang/_precompiled/...
+                rel_path = item.relative_to(jaclang_path.parent)
+                datas.append((str(item), str(rel_path.parent)))
+                if item.suffix == '.jir':
+                    jir_count += 1
+        print(f"  Collected jaclang _precompiled directory ({{jir_count}} .jir files)")
+except Exception as e:
+    print(f"  Warning: Could not collect jaclang _precompiled: {{e}}")
+
 # Add project .jac files
 project_dir = Path(r'{project_dir}')
 for jac_file in project_dir.rglob('*.jac'):
@@ -2984,8 +3066,14 @@ a = Analysis(
     hiddenimports=list(set(hiddenimports)),  # deduplicate
     hookspath=[],
     hooksconfig={{}},
-    runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'numpy', 'pandas', 'scipy', 'pkg_resources'],
+    runtime_hooks=[r'{runtime_hook_path}'],
+    excludes=[
+        'tkinter', 'matplotlib', 'numpy', 'pandas', 'scipy', 'pkg_resources',
+        'pytest', 'test', 'tests', 'testing',
+        'IPython', 'jupyter', 'notebook',
+        'PIL', 'Pillow',
+        'cv2', 'opencv',
+    ],
     noarchive=False,
 )
 
@@ -2994,9 +3082,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='{binary_name.replace(
         ".exe", ""
     )}',
@@ -3004,14 +3091,22 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='jac-sidecar',
 )
 ''';
 }
