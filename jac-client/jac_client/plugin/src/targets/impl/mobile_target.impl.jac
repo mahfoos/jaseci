@@ -246,12 +246,13 @@ def _generate_app_json(
     mobile_dir: Path, name: str, bundle_id: str, version: str, display_name: str
 ) {
     # Generate scheme from name (lowercase, no special chars)
-    scheme = name.lower().replace(" ", "").replace("-", "").replace("_", "");
+    name_str = str(name);
+    scheme = name_str.lower().replace(" ", "").replace("-", "").replace("_", "");
 
     config = {
         "expo": {
             "name": display_name,
-            "slug": name.lower().replace(" ", "-"),
+            "slug": name_str.lower().replace(" ", "-"),
             "scheme": scheme,
             "version": version,
             "orientation": "portrait",
@@ -284,7 +285,7 @@ def _generate_app_json(
 
 """Generate package.json for React Native."""
 def _generate_package_json(mobile_dir: Path, name: str) {
-    package_name = name.lower().replace(" ", "-");
+    package_name = str(name).lower().replace(" ", "-");
 
     package_json = {
         "name": package_name,
@@ -747,8 +748,9 @@ def _add_mobile_config(
 
     # Add [mobile] section with full Expo configuration
     # Generate slug and scheme from name
-    slug = name.lower().replace(" ", "-");
-    scheme = name.lower().replace(" ", "").replace("-", "").replace("_", "");
+    name_str = str(name);
+    slug = name_str.lower().replace(" ", "-");
+    scheme = name_str.lower().replace(" ", "").replace("-", "").replace("_", "");
 
     mobile_section = f'''
 
@@ -1342,27 +1344,33 @@ impl MobileTarget.dev(
     expo_process = None;
     def cleanup {
         console.print("\n  Stopping dev servers...", style="muted");
-        if expo_process {
-            try {
+        try {
+            if expo_process {
                 expo_process.terminate();
                 expo_process.wait(timeout=5);
-            } except Exception {
+            }
+        } except Exception {
+            if expo_process {
                 expo_process.kill();
             }
         }
-        if vite_process {
-            try {
+        try {
+            if vite_process {
                 vite_process.terminate();
                 vite_process.wait(timeout=5);
-            } except Exception {
+            }
+        } except Exception {
+            if vite_process {
                 vite_process.kill();
             }
         }
-        if server_process {
-            try {
+        try {
+            if server_process {
                 server_process.terminate();
                 server_process.wait(timeout=5);
-            } except Exception {
+            }
+        } except Exception {
+            if server_process {
                 server_process.kill();
             }
         }
@@ -1586,7 +1594,7 @@ def _build_with_eas(
             console.print(
                 "\n🔐 Login to EAS? (You'll be prompted for credentials)", style="bold"
             );
-            user_input = input("  Continue with login? [Y/n]: ").strip().lower();
+            user_input = str(input("  Continue with login? [Y/n]: ")).strip().lower();
             if user_input in ['', 'y', 'yes'] {
                 console.print("\n  Running: eas login", style="muted");
                 console.print("  (Follow the prompts to login)\n", style="muted");
