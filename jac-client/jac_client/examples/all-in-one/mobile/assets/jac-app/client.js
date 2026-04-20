@@ -76,7 +76,7 @@ Error generating stack: `+p.message+`
         } else {
           newResult[${K}] = ${Z}.value;
         }
-        
+
       `):I.write(`
         if (${Z}.issues.length) {
           payload.issues = payload.issues.concat(${Z}.issues.map(iss => ({
