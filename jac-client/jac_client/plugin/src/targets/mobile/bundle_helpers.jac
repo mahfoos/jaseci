@@ -56,7 +56,13 @@ def _copy_bundles_for_eas(mobile_build_dir: Path, mobile_src_dir: Path) {
     src_assets = mobile_src_dir / "assets" / "jac-app";
     src_assets.mkdir(parents=True, exist_ok=True);
 
-    for file_name in ["bundle.html", "bundle.ts", "client.js", "index.html", "styles.css"] {
+    for file_name in [
+        "bundle.html",
+        "bundle.ts",
+        "client.js",
+        "index.html",
+        "styles.css"
+    ] {
         src_file = build_assets / file_name;
         if src_file.exists() {
             shutil.copy2(src_file, src_assets / file_name);
@@ -81,7 +87,9 @@ def _copy_web_bundle_to_mobile(web_bundle_path: Path, mobile_dir: Path) {
     css_files = list(dist_dir.glob("*.css"));
     if css_files {
         shutil.copy2(css_files[0], assets_dir / "styles.css");
-        console.print(f"    ✔ Copied {css_files[0].name} as styles.css", style="success");
+        console.print(
+            f"    ✔ Copied {css_files[0].name} as styles.css", style="success"
+        );
     } else {
         console.warning("    No CSS file found, creating empty styles.css");
         (assets_dir / "styles.css").write_text("");
@@ -89,7 +97,7 @@ def _copy_web_bundle_to_mobile(web_bundle_path: Path, mobile_dir: Path) {
 
     js_files = list(dist_dir.glob("*.js"));
     if js_files {
-        main_js = max(js_files, key=lambda f: f.stat().st_size);
+        main_js = max(js_files, key=lambda f : f.stat().st_size);
         shutil.copy2(main_js, assets_dir / "client.js");
         console.print(f"    ✔ Copied {main_js.name} as client.js", style="success");
     } else {

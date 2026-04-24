@@ -474,7 +474,12 @@ def _check_mobile_dependencies {
     for (cmd, label, hint) in [
         (["node", "--version"], "Node.js", "Install from https://nodejs.org/"),
         (["yarn", "--version"], "yarn", "Install with: npm install -g yarn"),
-        (["npx", "expo", "--version"], "Expo CLI", "Will be installed with yarn install"),
+        (
+            ["npx", "expo", "--version"],
+            "Expo CLI",
+            "Will be installed with yarn install"
+        ),
+
     ] {
         try {
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10);
@@ -541,7 +546,9 @@ except ImportError:
         icon_path = assets_dir / "icon.png";
         subprocess.run(
             ["python3", "-c", python_code, str(icon_path)],
-            capture_output=True, text=True, timeout=10
+            capture_output=True,
+            text=True,
+            timeout=10
         );
         for icon_name in ["splash.png", "adaptive-icon.png", "favicon.png"] {
             shutil.copy2(icon_path, assets_dir / icon_name);

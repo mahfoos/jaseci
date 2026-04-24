@@ -119,9 +119,7 @@ def _build_with_eas(
                 console.print("  (Follow the prompts to login)\n", style="muted");
                 try {
                     result = subprocess.run(
-                        ["eas", "login"],
-                        cwd=str(mobile_dir),
-                        timeout=300
+                        ["eas", "login"], cwd=str(mobile_dir), timeout=300
                     );
                     if result.returncode != 0 {
                         console.error("  Login failed");
@@ -172,9 +170,7 @@ def _build_with_eas(
     console.print(f"  (Select the platform you chose: {platform})\n", style="muted");
 
     try {
-        result = subprocess.run(
-            cmd, cwd=str(mobile_dir), timeout=600
-        );
+        result = subprocess.run(cmd, cwd=str(mobile_dir), timeout=600);
         if result.returncode != 0 {
             console.error(f"\n  EAS build submission failed");
             raise RuntimeError(f"EAS build failed with exit code {result.returncode}");

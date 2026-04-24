@@ -47,7 +47,6 @@ import from jac_client.plugin.src.targets.mobile.eas_helpers {
 # ============================================================================
 # MobileTarget.setup — scaffold the mobile/ source directory
 # ============================================================================
-
 """Setup mobile target — scaffold React Native/Expo project structure."""
 impl MobileTarget.setup(project_dir: Path) -> None {
     mobile_dir = project_dir / "mobile";
@@ -106,18 +105,25 @@ impl MobileTarget.setup(project_dir: Path) -> None {
         );
 
         for (fn, label) in [
-            (lambda: _generate_app_json_from_toml(mobile_dir, project_dir), "app.json"),
-            (lambda: _generate_package_json(mobile_dir, project_name), "package.json"),
-            (lambda: _generate_tsconfig(mobile_dir), "tsconfig.json"),
-            (lambda: _generate_webview_screen(mobile_dir), "app/index.tsx"),
-            (lambda: _generate_bundle_script(mobile_dir), "create-bundle.js"),
-            (lambda: _generate_layout_file(mobile_dir), "app/_layout.tsx"),
             (
-                lambda: _add_mobile_config(project_dir, project_name, bundle_id, project_version),
+                lambda : _generate_app_json_from_toml(mobile_dir, project_dir),
+                "app.json"
+            ),
+            (lambda : _generate_package_json(mobile_dir, project_name), "package.json"),
+            (lambda : _generate_tsconfig(mobile_dir), "tsconfig.json"),
+            (lambda : _generate_webview_screen(mobile_dir), "app/index.tsx"),
+            (lambda : _generate_bundle_script(mobile_dir), "create-bundle.js"),
+            (lambda : _generate_layout_file(mobile_dir), "app/_layout.tsx"),
+            (
+                lambda :
+                    _add_mobile_config(
+                        project_dir, project_name, bundle_id, project_version
+                    ),
                 "[mobile] in jac.toml"
             ),
-            (lambda: _generate_placeholder_icons(mobile_dir), "placeholder icons"),
-            (lambda: _generate_gitignore(mobile_dir), ".gitignore"),
+            (lambda : _generate_placeholder_icons(mobile_dir), "placeholder icons"),
+            (lambda : _generate_gitignore(mobile_dir), ".gitignore"),
+
         ] {
             try {
                 fn();
@@ -144,9 +150,7 @@ impl MobileTarget.setup(project_dir: Path) -> None {
             "  jac build main.jac --client mobile -p android -b development",
             style="muted"
         );
-        console.print(
-            "  jac start main.jac --client mobile --dev", style="muted"
-        );
+        console.print("  jac start main.jac --client mobile --dev", style="muted");
     } finally {
         if not mobile_dir.exists() {
             try {
@@ -161,7 +165,6 @@ impl MobileTarget.setup(project_dir: Path) -> None {
 # ============================================================================
 # MobileTarget.build — web bundle → EAS cloud build
 # ============================================================================
-
 """Build mobile app — build web bundle first, then wrap with React Native."""
 impl MobileTarget.build(
     entry_file: Path,
@@ -245,7 +248,6 @@ impl MobileTarget.build(
 # ============================================================================
 # MobileTarget.dev — HMR dev mode (Vite + Expo dev client)
 # ============================================================================
-
 """Start mobile dev server — Vite HMR + backend + Expo dev client."""
 impl MobileTarget.dev(
     entry_file: Path, project_dir: Path, api_port: int = 8000
@@ -297,7 +299,9 @@ impl MobileTarget.dev(
                     proc.terminate();
                     proc.wait(timeout=5);
                 } except Exception {
-                    try { proc.kill(); } except Exception { }
+                    try {
+                        proc.kill();
+                    } except Exception { }
                 }
             }
         }
@@ -348,7 +352,6 @@ impl MobileTarget.dev(
 # ============================================================================
 # MobileTarget.start — bundle mode (no HMR, simulates production locally)
 # ============================================================================
-
 """Start mobile app with pre-built bundle (no HMR Vite server).
 
 Use this to verify the bundled app behaviour on a device without
@@ -382,13 +385,9 @@ impl MobileTarget.start(
     _copy_web_bundle_to_mobile(web_bundle_path, mobile_build_dir);
     _create_mobile_bundle(mobile_build_dir);
 
-    console.print(
-        f"  Starting backend server on port {api_port}...", style="muted"
-    );
+    console.print(f"  Starting backend server on port {api_port}...", style="muted");
     server_process = _start_backend_server(entry_file, project_dir, api_port);
-    console.print(
-        f"  ✔ Backend server starting on port {api_port}", style="success"
-    );
+    console.print(f"  ✔ Backend server starting on port {api_port}", style="success");
 
     expo_process = None;
 
@@ -400,7 +399,9 @@ impl MobileTarget.start(
                     proc.terminate();
                     proc.wait(timeout=5);
                 } except Exception {
-                    try { proc.kill(); } except Exception { }
+                    try {
+                        proc.kill();
+                    } except Exception { }
                 }
             }
         }
@@ -420,13 +421,10 @@ impl MobileTarget.start(
 
     try {
         expo_process = subprocess.Popen(
-            ["npx", "expo", "start", "--no-dev", "--minify"],
-            cwd=str(mobile_build_dir)
+            ["npx", "expo", "start", "--no-dev", "--minify"], cwd=str(mobile_build_dir)
         );
         console.success("Expo started in bundle mode!");
-        console.print(
-            f"  Backend API: http://{local_ip}:{api_port}", style="muted"
-        );
+        console.print(f"  Backend API: http://{local_ip}:{api_port}", style="muted");
         console.print(
             "  Scan QR code with Expo Go app to test on device", style="muted"
         );

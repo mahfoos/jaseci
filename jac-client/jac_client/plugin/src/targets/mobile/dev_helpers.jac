@@ -65,10 +65,7 @@ def _write_dev_config(mobile_dir: Path, project_dir: Path, local_ip: str) {
         production_api_url = '';
     }
 
-    dev_config = {
-        'localIP': local_ip,
-        'productionApiUrl': production_api_url
-    };
+    dev_config = {'localIP': local_ip, 'productionApiUrl': production_api_url};
 
     dev_config_path = mobile_dir / "dev-config.json";
     with open(dev_config_path, "w") as f {
