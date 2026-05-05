@@ -1,6 +1,13 @@
 name: Build Mobile Apps
 
 on:
+  # Temporary: auto-trigger on push for testing
+  push:
+    branches:
+      - feature/mobile-cicd-pipeline
+    paths:
+      - '.github/workflows/build-mobile.yml'
+
   # Manual trigger with options
   workflow_dispatch:
     inputs:
@@ -30,13 +37,16 @@ on:
 jobs:
   build-mobile:
     runs-on: ubuntu-latest
+    env:
+      BUILD_PROFILE: ${{ github.event.inputs.profile || 'preview' }}
+      APP_PATH: ${{ github.event.inputs.app_path || 'jac-client/jac_client/examples/all-in-one' }}
     strategy:
       fail-fast: false
       matrix:
-        # Dynamically set platform based on input
-        platform: ${{ fromJSON(github.event.inputs.platform == 'all' && '["ios", "android"]' || format('["{0}"]', github.event.inputs.platform)) }}
+        # Dynamically set platform based on input (default to android for push events)
+        platform: ${{ fromJSON((github.event.inputs.platform == 'all' && '["ios", "android"]') || (github.event.inputs.platform && format('["{0}"]', github.event.inputs.platform)) || '["android"]') }}
 
-    name: Build ${{ matrix.platform }} (${{ github.event.inputs.profile }})
+    name: Build ${{ matrix.platform }} (${{ github.event.inputs.profile || 'preview' }})
 
     steps:
       - name: Checkout code
@@ -74,7 +84,7 @@ jobs:
 
       - name: Check if mobile directory exists
         id: check_mobile
-        working-directory: ${{ github.event.inputs.app_path }}
+        working-directory: ${{ env.APP_PATH }}
         run: |
           if [ -d "mobile" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -86,19 +96,19 @@ jobs:
 
       - name: Setup mobile project (if needed)
         if: steps.check_mobile.outputs.exists == 'false'
-        working-directory: ${{ github.event.inputs.app_path }}
+        working-directory: ${{ env.APP_PATH }}
         run: |
           echo "Running jac setup mobile..."
           jac setup mobile
 
       - name: Install mobile dependencies
-        working-directory: ${{ github.event.inputs.app_path }}/mobile
+        working-directory: ${{ env.APP_PATH }}/mobile
         run: |
           echo "Installing dependencies with yarn..."
           yarn install
 
       - name: Authenticate with Expo
-        working-directory: ${{ github.event.inputs.app_path }}/mobile
+        working-directory: ${{ env.APP_PATH }}/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
@@ -106,20 +116,20 @@ jobs:
           eas whoami || echo "Not logged in, using EXPO_TOKEN from secrets"
 
       - name: Build mobile app for ${{ matrix.platform }}
-        working-directory: ${{ github.event.inputs.app_path }}/mobile
+        working-directory: ${{ env.APP_PATH }}/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          echo "Starting EAS build for ${{ matrix.platform }} with profile ${{ github.event.inputs.profile }}..."
+          echo "Starting EAS build for ${{ matrix.platform }} with profile ${{ env.BUILD_PROFILE }}..."
           eas build \
             --platform ${{ matrix.platform }} \
-            --profile ${{ github.event.inputs.profile }} \
+            --profile ${{ env.BUILD_PROFILE }} \
             --non-interactive \
             --wait
 
       - name: Get build information
         id: build_info
-        working-directory: ${{ github.event.inputs.app_path }}/mobile
+        working-directory: ${{ env.APP_PATH }}/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
@@ -141,29 +151,29 @@ jobs:
 
       - name: Download build artifact
         if: steps.build_info.outputs.build_status == 'finished'
-        working-directory: ${{ github.event.inputs.app_path }}/mobile
+        working-directory: ${{ env.APP_PATH }}/mobile
         run: |
           # Download the build artifact
           ARTIFACT_URL="${{ steps.build_info.outputs.artifact_url }}"
 
           if [ "${{ matrix.platform }}" = "android" ]; then
-            if [ "${{ github.event.inputs.profile }}" = "production" ]; then
+            if [ "${{ env.BUILD_PROFILE }}" = "production" ]; then
               EXT="aab"
             else
               EXT="apk"
             fi
-            curl -L -o "app-${{ matrix.platform }}-${{ github.event.inputs.profile }}.$EXT" "$ARTIFACT_URL"
+            curl -L -o "app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}.$EXT" "$ARTIFACT_URL"
           else
-            curl -L -o "app-${{ matrix.platform }}-${{ github.event.inputs.profile }}.tar.gz" "$ARTIFACT_URL"
+            curl -L -o "app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}.tar.gz" "$ARTIFACT_URL"
           fi
 
       - name: Upload artifact to GitHub
         if: steps.build_info.outputs.build_status == 'finished'
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-app-${{ matrix.platform }}-${{ github.event.inputs.profile }}-${{ github.run_number }}
+          name: mobile-app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}-${{ github.run_number }}
           path: |
-            ${{ github.event.inputs.app_path }}/mobile/app-${{ matrix.platform }}-${{ github.event.inputs.profile }}.*
+            ${{ env.APP_PATH }}/mobile/app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}.*
           retention-days: 30
           if-no-files-found: warn
 
@@ -175,7 +185,7 @@ jobs:
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Platform | ${{ matrix.platform }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Profile | ${{ github.event.inputs.profile }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Profile | ${{ env.BUILD_PROFILE }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Build ID | ${{ steps.build_info.outputs.build_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Status | ${{ steps.build_info.outputs.build_status }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Artifact | [Download](${{ steps.build_info.outputs.artifact_url }}) |" >> $GITHUB_STEP_SUMMARY
