@@ -9,7 +9,7 @@ equivalents:
    - Control flow statements (if/else, loops, try/except)
    - Data structures (lists, dictionaries, sets)
    - Special Jac features (walkers, abilities, archetypes)
-   - Data spatial operations (node/edge connections)
+   - Object spatial operations (node/edge connections)
 
 3. Managing imports and dependencies between modules
 4. Preserving source location information for error reporting
@@ -28,6 +28,7 @@ import jaclang.jac0core.unitree as uni;
 import from jaclang.jac0core.constant { CodeContext, EdgeDir }
 import from jaclang.jac0core.constant { Constants as Con }
 import from jaclang.jac0core.constant { Tokens as Tok }
+import from jaclang.jac0core.codeinfo { BoundaryTypeInfo, InteropBinding }
 import from jaclang.jac0core.passes.ast_gen { BaseAstGenPass }
 import from jaclang.jac0core.passes.ast_gen.jsx_processor { PyJsxProcessor }
 import from jaclang.jac0core.diagnostics {
@@ -38,8 +39,7 @@ import from jaclang.jac0core.diagnostics {
     E5005,
     E5006,
     E5007,
-    E5008,
-    W0062
+    E5008
 }
 
 glob T = TypeVar('T', bound=ast3.AST),
@@ -147,12 +147,12 @@ ctypes.
         local_name: str,
         func_name: str,
         module_name: str,
-        binding: object,
-        boundary_types: dict
+        binding: InteropBinding,
+        boundary_types: dict[str, BoundaryTypeInfo]
     ) -> str;
 
     """Build a Python source string for a boundary type stub class."""
-    def _gen_py_boundary_stub_class(class_name: str, info: object) -> str;
+    def _gen_py_boundary_stub_class(class_name: str, info: BoundaryTypeInfo) -> str;
 
     """Return the object from jaclib as ast node based on the import config."""
     def jaclib_obj(obj_name: str) -> ast3.Name;
@@ -173,6 +173,9 @@ needs_enum)
 
     """Ensure Enum utilities are imported only once."""
     def needs_enum -> None;
+
+    """Ensure a specific enum kind (IntEnum, StrEnum, ...) is imported once."""
+    def needs_enum_kind(kind: str) -> None;
 
     """Ensure concurrent Future is imported only once."""
     def needs_future -> None;

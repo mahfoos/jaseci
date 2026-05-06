@@ -284,10 +284,37 @@ impl DocIRGenPass.exit_int(nd: uni.Int) -> None {
 
 """Generate DocIR for names."""
 impl DocIRGenPass.exit_name(nd: uni.Name) -> None {
-    if nd.is_kwesc {
-        nd.gen.doc_ir = self.text(f"`{nd.value}", source_token=nd);
+    name_text = f"`{nd.value}" if nd.is_kwesc else nd.value;
+    by_kid = next(
+        (
+            k
+            for k in nd.kid
+            if isinstance(k, uni.Token) and k.name == Tok.KW_BY
+        ),
+        None
+    );
+    if by_kid is not None {
+        # Bare genai body (`by <name>;`): the parser attaches `by` and `;`
+        # as kids of this Name node. Render them so they are not lost.
+        semi_kid = next(
+            (
+                k
+                for k in nd.kid
+                if isinstance(k, uni.Semi)
+            ),
+            None
+        );
+        parts: list[doc.DocType] = [
+            by_kid.gen.doc_ir,
+            self.space(),
+            self.text(name_text, source_token=nd)
+        ];
+        if semi_kid is not None {
+            parts.append(semi_kid.gen.doc_ir);
+        }
+        nd.gen.doc_ir = self.concat(parts, ast_node=nd);
     } else {
-        nd.gen.doc_ir = self.text(nd.value, source_token=nd);
+        nd.gen.doc_ir = self.text(name_text, source_token=nd);
     }
 }
 
@@ -1282,6 +1309,23 @@ impl DocIRGenPass.exit_lambda_expr(nd: uni.LambdaExpr) -> None {
     # jammed output like `}timer = setTimeout(...)`.
     body_stmts = list(nd.body) if isinstance(nd.body, Sequence) else [];
     has_multi_stmt_body = len(body_stmts) > 1;
+    # Single-stmt body: add space before `}` only when the statement ends with `;`
+    # not `}` (e.g. if/while/try-except blocks already close with `}`, no extra
+    # space needed). Walk last-kid chain iteratively since nodes like TryStmt have
+    # a non-Token last kid (ExceptClause) that itself ends with RBRACE.
+    _sbrace = len(body_stmts) == 0;
+    if len(body_stmts) == 1 and body_stmts[0].kid {
+        _cur = body_stmts[0];
+        while _cur.kid {
+            _last = _cur.kid[-1];
+            if isinstance(_last, uni.Token) {
+                _sbrace = _last.name == Tok.RBRACE;
+                break;
+            }
+            _cur = _last;
+        }
+    }
+    single_body_ends_with_brace = _sbrace;
     body_parts: list[doc.DocType] = [];
     in_body = False;
     for i in nd.kid {
@@ -1316,7 +1360,9 @@ impl DocIRGenPass.exit_lambda_expr(nd: uni.LambdaExpr) -> None {
             continue;
         }
         if (isinstance(i, uni.Token) and (i.name == Tok.RBRACE)) {
-            # Don't add trailing space after closing brace of code block lambda
+            if not single_body_ends_with_brace {
+                parts.append(self.space());
+            }
             parts.append(i.gen.doc_ir);
         } elif isinstance(i, uni.Token) {
             parts.append(i.gen.doc_ir);
@@ -1848,6 +1894,7 @@ impl DocIRGenPass.exit_return_stmt(nd: uni.ReturnStmt) -> None {
         }
         parts.append(self.space());
     }
+    parts.pop();
     nd.gen.doc_ir = self.group(self.concat(parts, ast_node=nd), ast_node=nd);
 }
 
@@ -1932,6 +1979,7 @@ impl DocIRGenPass.exit_if_stmt(nd: uni.IfStmt) -> None {
     # break onto their own lines, matching idiomatic Jac style.
     flat_capable = (
         isinstance(nd.parent, uni.LambdaExpr)
+        and not (isinstance(nd.parent.body, Sequence) and len(list(nd.parent.body)) > 1)
         and (nd.else_body is None)
         and (len(nd.body) == 1)
         and not self.has_gap(nd, nd.body[0])

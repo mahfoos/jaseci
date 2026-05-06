@@ -5,6 +5,31 @@ impl Access.check(anchor: str) -> (AccessLevel | None) {
     return self.anchors.get(anchor);
 }
 
+"""Serialize PermissionDenied into a JSON-safe dict for the response envelope."""
+impl PermissionDenied.to_dict -> dict[(str, Any)] {
+    return {
+        "operation": self.operation,
+        "target_id": self.target_id,
+        "target_type": self.target_type,
+        "target_owner": self.target_owner,
+        "required": self.required.name,
+        "actual": self.actual.name,
+        "message": self.message()
+    };
+}
+
+"""Render PermissionDenied as a single-line user-facing message."""
+impl PermissionDenied.message -> str {
+    owner = self.target_owner or "<system>";
+    return (
+        f"Permission denied: {self.operation} on "
+        f"{self.target_type}[{self.target_id}] owned by root[{owner}]; "
+        f"required {self.required.name}, have {self.actual.name}. "
+        f"Hint: at the owner-side call `grant(node, level={self.required.name})`, "
+        f"or expose an ability on the target node and route writes through it."
+    );
+}
+
 """Filter edge."""
 impl ObjectSpatialDestination.edge_filter(arch: Archetype) -> bool {
     return (not self.edge or self.edge(arch));
@@ -303,9 +328,22 @@ impl Archetype.__init_subclass__(cls: Any, **kwargs: object) -> None {
     }
 }
 
-"""Set attribute on archetype."""
+"""Set attribute on archetype and track dirty fields after initialization."""
 impl Archetype.__setattr__(name: str, value: Any) -> None {
     object.__setattr__(self, name, value);
+    if self.__dict__.get('__jac_initialized__', False) and not name.startswith('_') {
+        dirty: set[str] = self.__dict__.get('__jac_dirty_fields__');
+        if not isinstance(dirty, set) {
+            dirty = set();
+            object.__setattr__(self, '__jac_dirty_fields__', dirty);
+        }
+        dirty.add(name);
+    }
+}
+
+"""Mark archetype as initialized so subsequent field changes are tracked as dirty."""
+impl Archetype.postinit -> None {
+    object.__setattr__(self, '__jac_initialized__', True);
 }
 
 """Override repr for archetype."""
