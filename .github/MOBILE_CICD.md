@@ -21,7 +21,7 @@ GitHub artifact.
 1. **Provision the runner** — JDK 17, Android SDK, Python 3.12, Node 20, Yarn.
 2. **Install Jac packages** — `pip install -e jac` and `pip install -e jac-client` from the checkout.
 3. **`jac setup mobile`** — idempotent. Skipped if `mobile/` already exists.
-4. **`JAC_MOBILE_SKIP_EAS=1 jac build --client mobile -p android`** — prepares
+4. **`JAC_MOBILE_SKIP_EAS=1 jac build --client mobile -p android -b preview`** — prepares
    the web bundle, copies it into `.jac/mobile/assets/jac-app/`, installs
    `node_modules`, and stops *before* the EAS submission. The
    `JAC_MOBILE_SKIP_EAS` env var is read by
@@ -194,7 +194,7 @@ build-ios:
       working-directory: ${{ env.APP_PATH }}
       env:
         JAC_MOBILE_SKIP_EAS: "1"
-      run: jac build --client mobile --platform ios --build-type preview
+      run: jac build --client mobile -p ios -b preview
 
     - name: Generate native iOS project
       working-directory: ${{ env.APP_PATH }}/.jac/mobile

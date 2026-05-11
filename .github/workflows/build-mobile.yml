@@ -106,7 +106,7 @@ jobs:
         run: |
           # With JAC_MOBILE_SKIP_EAS=1 the plugin stops after the bundle
           # lands in .jac/mobile/ with node_modules installed.
-          jac build --client mobile --platform android --build-type preview
+          jac build --client mobile -p android -b preview
 
       - name: Verify build artifacts
         working-directory: ${{ env.APP_PATH }}/.jac/mobile
