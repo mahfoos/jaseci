@@ -1,7 +1,7 @@
 # This directory contains SOURCE files only
 # All build artifacts (node_modules, bundles) are in .jac/mobile/
 
-# node_modules symlink (points to .jac/mobile/node_modules for EAS verification)
+# node_modules (installed under .jac/mobile/ during build)
 node_modules/
 
 # Environment files
@@ -11,11 +11,3 @@ node_modules/
 # OS files
 .DS_Store
 *.pem
-
-# Jac web bundle artifacts (temporarily copied here for EAS builds)
-# These are generated in .jac/mobile/ and copied here only for EAS git upload
-assets/jac-app/bundle.html
-assets/jac-app/bundle.ts
-assets/jac-app/client.js
-assets/jac-app/index.html
-assets/jac-app/styles.css

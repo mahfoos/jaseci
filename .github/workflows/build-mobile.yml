@@ -9,9 +9,8 @@ name: Build Mobile Apps
 # is installable on any device.  For Play Store you need (a) with a
 # stable keystore — see .github/MOBILE_CICD.md.
 #
-# The build path: jac setup mobile → jac build --client mobile (with
-# JAC_MOBILE_SKIP_EAS=1 so the plugin stops after preparing the bundle in
-# .jac/mobile/) → expo prebuild → gradle release build → APK artifact.
+# The build path: jac setup mobile → jac build --client mobile (prepares
+# the bundle in .jac/mobile/) → expo prebuild → gradle release build → APK.
 
 on:
   push:
@@ -86,13 +85,10 @@ jobs:
             jac setup mobile
           fi
 
-      - name: Prepare mobile bundle (web → mobile, skip EAS)
+      - name: Prepare mobile bundle (web → mobile)
         working-directory: ${{ env.APP_PATH }}
-        env:
-          JAC_MOBILE_SKIP_EAS: "1"
         run: |
-          # With JAC_MOBILE_SKIP_EAS=1 the plugin stops after the bundle
-          # lands in .jac/mobile/ with node_modules installed.
+          # Bundle is prepared in .jac/mobile/ with node_modules installed.
           jac build --client mobile -p android -b preview
 
       - name: Verify build artifacts

@@ -4,13 +4,11 @@ Helper functions are split into focused submodules under targets/mobile/:
   setup_helpers  — scaffolding generators (_generate_*, _add_mobile_config, …)
   bundle_helpers — web→mobile bundle pipeline (_prepare_build_dir, _create_mobile_bundle, …)
   dev_helpers    — dev-server utilities (_get_local_ip, _start_backend_server, …)
-  eas_helpers    — EAS cloud build functions (_check_eas_ready, _build_with_eas, …)
 """
 import from pathlib { Path }
 import from typing { Optional, Any }
 import from jaclang.cli.console { console }
 import subprocess;
-import os;
 
 import from jac_client.plugin.src.targets.mobile.setup_helpers {
     _generate_app_json_from_toml,
@@ -27,7 +25,6 @@ import from jac_client.plugin.src.targets.mobile.setup_helpers {
 }
 import from jac_client.plugin.src.targets.mobile.bundle_helpers {
     _prepare_build_dir,
-    _copy_bundles_for_eas,
     _copy_web_bundle_to_mobile,
     _create_mobile_bundle
 }
@@ -36,12 +33,6 @@ import from jac_client.plugin.src.targets.mobile.dev_helpers {
     _write_dev_config,
     _start_vite_dev_server,
     _start_backend_server
-}
-import from jac_client.plugin.src.targets.mobile.eas_helpers {
-    _generate_eas_json,
-    _check_eas_ready,
-    _build_with_eas,
-    _get_artifact_type
 }
 
 # ============================================================================
@@ -163,19 +154,19 @@ impl MobileTarget.setup(project_dir: Path) -> None {
 }
 
 # ============================================================================
-# MobileTarget.build — web bundle → EAS cloud build
+# MobileTarget.build — web bundle → mobile bundle (native build runs elsewhere)
 # ============================================================================
-"""Build mobile app — build web bundle first, then wrap with React Native."""
+"""Build mobile bundle — produces .jac/mobile/ ready for `expo prebuild` + native build.
+
+The native APK/IPA build (Gradle / Xcode) is intentionally not run here.
+Drive it from CI or a local script; see .github/MOBILE_CICD.md.
+"""
 impl MobileTarget.build(
     entry_file: Path,
     project_dir: Path,
     platform: Optional[str] = None,
     build_type: str = "production"
 ) -> Path {
-    # Allow CI/local-runner builds to skip the EAS cloud submission and stop
-    # after the bundle is prepared in .jac/mobile/.  Set JAC_MOBILE_SKIP_EAS=1
-    # to take this path (e.g. when building the APK natively on a runner).
-    use_eas: bool = os.environ.get("JAC_MOBILE_SKIP_EAS", "") != "1";
     console.print("\n📱 Building mobile app (React Native)", style="bold");
 
     mobile_src_dir = project_dir / "mobile";
@@ -197,53 +188,13 @@ impl MobileTarget.build(
     console.print("  Step 4: Creating mobile bundle...", style="muted");
     _create_mobile_bundle(mobile_build_dir);
 
-    if use_eas {
-        console.print(f"  Step 5: Preparing for EAS build...", style="muted");
-        _copy_bundles_for_eas(mobile_build_dir, mobile_src_dir);
-        try {
-            _generate_eas_json(mobile_src_dir, project_dir);
-        } except Exception as e {
-            console.warning(f"  Failed to generate eas.json: {e}");
-        }
-
-        node_modules_link = mobile_src_dir / "node_modules";
-        node_modules_src = mobile_build_dir / "node_modules";
-        if build_type == "development" and not node_modules_link.exists() {
-            try {
-                os.symlink(
-                    node_modules_src, node_modules_link, target_is_directory=True
-                );
-                console.print("  ✔ Symlink created", style="success");
-            } except Exception as e {
-                console.warning(f"  Could not create symlink: {e}");
-            }
-        }
-
-        try {
-            build_info = _build_with_eas(
-                mobile_src_dir, project_dir, build_type, platform or "android"
-            );
-            console.success("Mobile app submitted to EAS!");
-        } finally {
-            if node_modules_link.exists() and node_modules_link.is_symlink() {
-                node_modules_link.unlink();
-            }
-        }
-
-        console.print(f"\n📊 Build Information:", style="bold");
-        console.print(f"  Build ID: {build_info['build_id']}", style="muted");
-        console.print(f"  Build URL: {build_info['build_url']}", style="muted");
-        console.print(
-            f"  Expected artifact: {build_info['artifact_type']}", style="muted"
-        );
-        console.print(
-            f"\n💡 Monitor your build at: {build_info['build_url']}", style="bold"
-        );
-    } else {
-        console.print("  Step 5: Skipping EAS build...", style="muted");
-        console.success("Mobile app bundle created successfully!");
-        console.print(f"  Build directory: {mobile_build_dir}", style="muted");
-    }
+    console.success("Mobile bundle created successfully!");
+    console.print(f"  Build directory: {mobile_build_dir}", style="muted");
+    console.print(f"\n💡 Next: run `expo prebuild` then your native build", style="bold");
+    console.print(
+        f"     cd {mobile_build_dir} && npx expo prebuild --platform android",
+        style="muted"
+    );
 
     return mobile_build_dir;
 }
@@ -358,7 +309,7 @@ impl MobileTarget.dev(
 """Start mobile app with pre-built bundle (no HMR Vite server).
 
 Use this to verify the bundled app behaviour on a device without
-triggering a full EAS cloud build.  Unlike dev(), no Vite server is
+triggering a full native build.  Unlike dev(), no Vite server is
 started — Expo loads the pre-built assets only.
 """
 impl MobileTarget.start(

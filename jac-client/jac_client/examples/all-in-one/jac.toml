@@ -127,16 +127,6 @@ backgroundColor = "#ffffff"
 [mobile.expo.web]
 favicon = "./assets/favicon.png"
 
-# EAS Build profiles (generates mobile/eas.json)
-[mobile.eas.profiles.development]
-distribution = "internal"
-
-[mobile.eas.profiles.preview]
-distribution = "internal"
-
-[mobile.eas.profiles.production]
-distribution = "store"
-
 [plugins.client.pwa]
 theme_color = "#000000"
 background_color = "#ffffff"

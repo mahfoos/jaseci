@@ -50,27 +50,6 @@ def _prepare_build_dir(mobile_src_dir: Path, mobile_build_dir: Path) {
     }
 }
 
-"""Copy EAS-needed bundle files from .jac/mobile/ back into mobile/ source dir."""
-def _copy_bundles_for_eas(mobile_build_dir: Path, mobile_src_dir: Path) {
-    build_assets = mobile_build_dir / "assets" / "jac-app";
-    src_assets = mobile_src_dir / "assets" / "jac-app";
-    src_assets.mkdir(parents=True, exist_ok=True);
-
-    for file_name in [
-        "bundle.html",
-        "bundle.ts",
-        "client.js",
-        "index.html",
-        "styles.css"
-    ] {
-        src_file = build_assets / file_name;
-        if src_file.exists() {
-            shutil.copy2(src_file, src_assets / file_name);
-        }
-    }
-    console.print("  ✔ Bundles copied to mobile/ for EAS", style="success");
-}
-
 """Copy the Vite-built web bundle files into the mobile assets directory."""
 def _copy_web_bundle_to_mobile(web_bundle_path: Path, mobile_dir: Path) {
     assets_dir = mobile_dir / "assets" / "jac-app";

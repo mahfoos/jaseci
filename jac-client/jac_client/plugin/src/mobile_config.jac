@@ -25,9 +25,6 @@ class MobileConfig(TargetConfig) {
     """Get features configuration."""
     def get_features_config(self: MobileConfig) -> dict[str, Any];
 
-    """Get EAS build configuration."""
-    def get_eas_config(self: MobileConfig) -> dict[str, Any];
-
     """Get app.json configuration for Expo."""
     def get_app_json_config(self: MobileConfig) -> dict[str, Any];
 

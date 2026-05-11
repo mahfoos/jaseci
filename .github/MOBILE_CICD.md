@@ -6,14 +6,14 @@ what remains to be set up for iOS support.
 ## Overview
 
 The workflow at `.github/workflows/build-mobile.yml` builds mobile apps
-**directly on the GitHub Actions runner** — no EAS Cloud. This mirrors the
-desktop pipeline (`build-protomcp-audit.yml`, `build-standalone.yml`) which
-compiles Tauri/Cargo locally on the runner and uploads the installer as a
-GitHub artifact.
+**directly on the GitHub Actions runner**. This mirrors the desktop
+pipeline (`build-standalone.yml`, `build-protomcp-audit.yml`) which
+compiles Tauri/Cargo locally on the runner and uploads the installer as
+a GitHub artifact.
 
 | Platform | Runner | Status |
 |---|---|---|
-| Android | `ubuntu-latest` | Implemented — produces APK |
+| Android | `ubuntu-latest` | Implemented — produces signed release APK |
 | iOS | `macos-latest` | Pending — needs Apple Developer credentials (see below) |
 
 ## How the Android build works
@@ -21,35 +21,45 @@ GitHub artifact.
 1. **Provision the runner** — JDK 17, Android SDK, Python 3.12, Node 20, Yarn.
 2. **Install Jac packages** — `pip install -e jac` and `pip install -e jac-client` from the checkout.
 3. **`jac setup mobile`** — idempotent. Skipped if `mobile/` already exists.
-4. **`JAC_MOBILE_SKIP_EAS=1 jac build --client mobile -p android -b preview`** — prepares
-   the web bundle, copies it into `.jac/mobile/assets/jac-app/`, installs
-   `node_modules`, and stops *before* the EAS submission. The
-   `JAC_MOBILE_SKIP_EAS` env var is read by
-   `jac-client/jac_client/plugin/src/targets/impl/mobile_target.impl.jac`.
+4. **`jac build --client mobile -p android -b preview`** — prepares the web
+   bundle, copies it into `.jac/mobile/assets/jac-app/`, and installs
+   `node_modules` in `.jac/mobile/`.
 5. **`npx expo prebuild --platform android --clean --no-install`** —
    generates the native `android/` Gradle project from `app.json` + `package.json`.
-6. **`./gradlew assembleDebug`** (or `assembleRelease` if signing secrets are
-   set) — compiles the APK.
-7. **Upload artifact** — APK is attached to the workflow run, downloadable
+6. **Configure release signing** — auto-generates a throwaway keystore via
+   `keytool` if no real signing secrets are configured; uses real secrets
+   if present. Patches `android/app/build.gradle` to wire the keystore
+   into the `release` signing config.
+7. **`./gradlew assembleRelease`** — produces a signed release APK
+   (pre-bundled JS, `__DEV__ = false`, installable on any device).
+8. **Upload artifact** — APK is attached to the workflow run, downloadable
    from the Actions tab.
 
 ### Triggers
 
 - **Push to `feature/mobile-cicd-pipeline`** when this workflow file or any
   file under `jac-client/` changes.
-- **Manual `workflow_dispatch`** with options:
-  - `platform`: `android` (only choice for now)
-  - `build_type`: `debug` (default) or `release`
-  - `app_path`: defaults to `jac-client/jac_client/examples/all-in-one`
+- **Manual `workflow_dispatch`** with an optional `app_path` input
+  (defaults to `jac-client/jac_client/examples/all-in-one`).
 
-## Upgrading from debug APK to signed release APK
+### Signing modes
 
-The debug APK is auto-signed with Android's universal debug keystore. It
-installs on any device for testing but **cannot be uploaded to Google Play**
-and shows an "unknown developer" warning during sideload.
+The workflow always produces a release-mode APK. The signing keystore
+is chosen at runtime:
 
-To produce a signed release APK, generate a keystore and store it as GitHub
-secrets:
+| Keystore source | When used | APK is… |
+|---|---|---|
+| Real keystore from repository secrets | All four `ANDROID_*` secrets are configured | Stable signing identity. **Play-Store-distributable.** |
+| Auto-generated throwaway keystore | Any of the four secrets is missing | Installable on any device for QA / sideload. **Cannot be uploaded to Google Play** — the signing identity changes every CI run, which breaks Play's update verification. |
+
+To produce a Play-Store-ready APK, generate a keystore and store it as
+GitHub secrets.
+
+## Generating a stable release keystore
+
+Do this **once**, locally, and **back up the resulting `.keystore` file
+somewhere safe**. If you lose it, you cannot publish updates to your app
+on the Play Store ever again — Google does not allow re-signing.
 
 ```bash
 # 1. Generate a release keystore (do this once, locally, and back it up)
@@ -74,20 +84,15 @@ variables → Actions):
 | `ANDROID_KEY_ALIAS` | The alias you passed to `-alias` |
 | `ANDROID_KEY_PASSWORD` | The key password (often the same as keystore password) |
 
-Then re-run with `workflow_dispatch` → `build_type: release`. If all four
-secrets are present, the workflow will pass them to Gradle via
-`-PMYAPP_RELEASE_*` properties and produce `app-release.apk`. If any secret
-is missing, the workflow falls back to debug APK and warns in the log.
-
-> **Note:** the React Native `build.gradle` template that Expo generates
-> reads signing config from `MYAPP_RELEASE_*` Gradle properties by default.
-> If your generated `android/app/build.gradle` uses different property
-> names, adjust the `-P` flags in the workflow to match.
+The next workflow run will detect all four secrets and sign with your
+keystore automatically. The build summary will say
+`Signing: release-keystore` instead of `throwaway-keystore`.
 
 ## Upgrading from APK to AAB (Google Play)
 
-Google Play requires `.aab` (Android App Bundle), not `.apk`. To produce an
-AAB instead, change the gradle command in `.github/workflows/build-mobile.yml`:
+Google Play requires `.aab` (Android App Bundle), not `.apk`. To produce
+an AAB instead, change the gradle command in
+`.github/workflows/build-mobile.yml`:
 
 ```yaml
 ./gradlew bundleRelease   # instead of assembleRelease
@@ -98,6 +103,119 @@ The output path changes too:
 
 You may want to keep both an APK (for sideload testing) and an AAB (for
 Play upload) — that requires two gradle invocations.
+
+---
+
+## Local development
+
+You don't need CI for day-to-day work. Three local workflows depending on
+what you're doing:
+
+### 1. Fast iteration with HMR (most common)
+
+```bash
+cd jac-client/jac_client/examples/all-in-one
+jac start main.jac --client mobile --dev
+```
+
+- Runs Vite dev server on `:5173` + backend on `:8000` + Expo dev server.
+- Scan the QR code with the **Expo Go** app on your phone (same Wi-Fi).
+- Edit `.jac` / `.tsx` files → live reload, no rebuild.
+- This is what you'll use 90% of the time.
+
+### 2. Test the bundled app on device (no HMR)
+
+```bash
+jac start main.jac --client mobile
+```
+
+- Same as above but loads the pre-built bundle instead of the Vite dev
+  server. Useful to verify the bundling step before pushing to CI.
+- Still uses Expo Go on your phone.
+
+### 3. Build a real APK locally (mirrors what CI does)
+
+Prerequisites (one-time setup):
+
+- **JDK 17** — `brew install --cask temurin@17` on macOS,
+  `sudo apt install openjdk-17-jdk` on Ubuntu.
+- **Android SDK** — easiest path: install Android Studio, then export:
+  ```bash
+  export ANDROID_HOME="$HOME/Library/Android/sdk"   # macOS default
+  export PATH="$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin"
+  ```
+- **Node 20 + Yarn**.
+
+Then:
+
+```bash
+cd jac-client/jac_client/examples/all-in-one
+
+# 1. Prepare the bundle (re-run after code changes)
+jac build --client mobile -p android -b preview
+
+# 2. Generate the native android/ project
+cd .jac/mobile
+npx expo prebuild --platform android --clean --no-install
+
+# 3. Build a debug APK (no keystore needed)
+cd android
+./gradlew assembleDebug
+# Output: app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install on a connected device with `adb`:
+
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+> **Debug APK caveat:** `assembleDebug` does not pre-bundle the JS and
+> assumes a Metro bundler is running on your laptop. For a self-contained
+> APK that behaves like CI's output, use the release build below.
+
+#### Release build locally (matches CI output)
+
+```bash
+cd .jac/mobile/android
+
+# Generate a throwaway keystore (one-time, per .jac/mobile/)
+keytool -genkeypair -v \
+  -keystore app/release.keystore \
+  -storepass ciinstall -keypass ciinstall -alias ciinstallkey \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -dname "CN=Local Dev, O=Me, C=US"
+
+# Append signing config so the patched build.gradle picks it up
+cat >> gradle.properties <<'EOF'
+MYAPP_RELEASE_STORE_FILE=release.keystore
+MYAPP_RELEASE_STORE_PASSWORD=ciinstall
+MYAPP_RELEASE_KEY_ALIAS=ciinstallkey
+MYAPP_RELEASE_KEY_PASSWORD=ciinstall
+EOF
+
+./gradlew assembleRelease
+# Output: app/build/outputs/apk/release/app-release.apk
+```
+
+You only need the keystore + properties dance once per `.jac/mobile/` —
+it'll persist until you re-run `expo prebuild --clean`.
+
+### iOS locally (Mac only)
+
+```bash
+jac build --client mobile -p ios -b preview
+cd .jac/mobile
+npx expo prebuild --platform ios --clean --no-install
+cd ios && pod install
+open *.xcworkspace   # opens Xcode
+# In Xcode: pick a simulator → ▶ Run, or pick your device with signing identity
+```
+
+For CLI-only:
+`xcodebuild -workspace *.xcworkspace -scheme <Name> -configuration Debug build`.
+For first-time setup Xcode is much easier — let it auto-create the
+signing identity and then drop to CLI later.
 
 ---
 
@@ -170,7 +288,7 @@ When the credentials are ready, add a `build-ios` job alongside `build-android`:
 
 ```yaml
 build-ios:
-  name: Build iOS (${{ github.event.inputs.build_type || 'debug' }})
+  name: Build iOS
   runs-on: macos-latest
   timeout-minutes: 90
   steps:
@@ -192,8 +310,6 @@ build-ios:
 
     - name: Prepare mobile bundle
       working-directory: ${{ env.APP_PATH }}
-      env:
-        JAC_MOBILE_SKIP_EAS: "1"
       run: jac build --client mobile -p ios -b preview
 
     - name: Generate native iOS project
@@ -252,8 +368,8 @@ The `--no-install` flag we pass skips an extra `yarn install` because
 after that step, you may need to drop `--no-install`.
 
 **Gradle wrapper "Permission denied".**
-The workflow `chmod +x ./gradlew` before running it. If you see this on
-a self-hosted runner, the checkout may have lost the executable bit —
+The workflow runs `chmod +x ./gradlew` before invoking it. If you see this
+on a self-hosted runner, the checkout may have lost the executable bit —
 keep the `chmod`.
 
 **APK installs but the WebView is blank.**
@@ -264,7 +380,15 @@ unrelated Python error earlier in that step that the shell swallowed
 without failing the job.
 
 **Release APK build fails complaining about missing signing config.**
-Either the four `ANDROID_*` secrets aren't all set, or your generated
-`android/app/build.gradle` uses different property names than
-`MYAPP_RELEASE_*`. Open it and adjust the `-P` flags in the workflow to
-match.
+The workflow's `Configure release signing` step patches
+`android/app/build.gradle` to add a release signing config. If the regex
+didn't match (because Expo's prebuild template changed shape), the patch
+prints "Could not find signingConfigs block in build.gradle" and fails.
+Inspect the generated `build.gradle` and adjust the regex in the workflow
+to match the new structure.
+
+**APK installs once but won't update next CI run.**
+You're using the throwaway-keystore fallback. Each CI run generates a
+fresh keystore, so Android sees a different signing identity and refuses
+the update. Either uninstall the old APK before reinstalling, or
+configure the four `ANDROID_*` secrets to use a stable keystore.

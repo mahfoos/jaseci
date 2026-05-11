@@ -451,16 +451,6 @@ backgroundColor = "#ffffff"
 
 [mobile.expo.web]
 favicon = "./assets/favicon.png"
-
-[mobile.eas.profiles.development]
-distribution = "internal"
-developmentClient = true
-
-[mobile.eas.profiles.preview]
-distribution = "internal"
-
-[mobile.eas.profiles.production]
-distribution = "store"
 ''';
 
     with open(toml_path, "a") as f {
@@ -564,7 +554,7 @@ except ImportError:
 def _generate_gitignore(mobile_dir: Path) {
     gitignore_content = """# Source files only — build artifacts live in .jac/mobile/
 
-# node_modules symlink (points to .jac/mobile/node_modules for EAS)
+# node_modules (installed under .jac/mobile/ during build)
 node_modules/
 
 # Environment files
@@ -574,13 +564,6 @@ node_modules/
 # OS files
 .DS_Store
 *.pem
-
-# Web bundle artifacts (generated in .jac/mobile/, copied here only for EAS)
-assets/jac-app/bundle.html
-assets/jac-app/bundle.ts
-assets/jac-app/client.js
-assets/jac-app/index.html
-assets/jac-app/styles.css
 """;
     with open(mobile_dir / ".gitignore", "w") as f {
         f.write(gitignore_content);

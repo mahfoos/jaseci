@@ -6,7 +6,6 @@ Only mobile-specific methods live here.
 import from pathlib { Path }
 import from typing { Any }
 import from jaclang.project.config { JacConfig, get_config }
-import from jaclang.project.plugin_config { deep_merge }
 import from jaclang.cli.console { console }
 
 """Return the TOML section key for mobile config."""
@@ -131,53 +130,6 @@ impl MobileConfig.get_app_json_config(self: MobileConfig) -> dict[str, Any] {
     }
 
     return app_json;
-}
-
-"""Get EAS (Expo Application Services) configuration for building."""
-impl MobileConfig.get_eas_config(self: MobileConfig) -> dict[str, Any] {
-    config = self.load();
-    eas_config = config.get('eas', {});
-
-    default_profiles = {
-        'development': {
-            'distribution': 'internal',
-            'developmentClient': True,
-            'android': {'gradleCommand': ':app:assembleDebug', 'buildType': 'apk'},
-            'ios': {'simulator': True, 'buildConfiguration': 'Debug'}
-        },
-        'preview': {
-            'distribution': 'internal',
-            'android': {'gradleCommand': ':app:assembleRelease', 'buildType': 'apk'},
-            'ios': {'simulator': False, 'buildConfiguration': 'Release'}
-        },
-        'production': {
-            'distribution': 'store',
-            'android': {
-                'gradleCommand': ':app:bundleRelease',
-                'buildType': 'app-bundle'
-            },
-            'ios': {'simulator': False, 'buildConfiguration': 'Release'}
-        }
-    };
-
-    profiles = eas_config.get('profiles', {});
-    merged_profiles = {** default_profiles};
-    for profile_name in profiles {
-        profile_config = profiles[profile_name];
-        if profile_name in merged_profiles {
-            merged_profiles[profile_name] = deep_merge(
-                merged_profiles[profile_name], profile_config
-            );
-        } else {
-            merged_profiles[profile_name] = profile_config;
-        }
-    }
-
-    return {
-        'cli': {'version': '>= 13.2.0'},
-        'build': merged_profiles,
-        'submit': eas_config.get('submit', {})
-    };
 }
 
 """Validate required mobile configuration fields."""
