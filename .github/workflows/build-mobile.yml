@@ -1,14 +1,23 @@
 name: Build Mobile Apps
 
+# Native mobile build on the GitHub Actions runner — no EAS Cloud.
+#
+# Android: compiled on ubuntu-latest via Gradle, producing an APK that is
+# uploaded as a GitHub artifact. iOS support will be added once Apple
+# Developer credentials are provisioned (see .github/MOBILE_CICD.md).
+#
+# The build path: jac setup mobile → jac build --client mobile (with
+# JAC_MOBILE_SKIP_EAS=1 so the plugin stops after preparing the bundle in
+# .jac/mobile/) → expo prebuild → gradlew → APK.
+
 on:
-  # Temporary: auto-trigger on push for testing
   push:
     branches:
       - feature/mobile-cicd-pipeline
     paths:
       - '.github/workflows/build-mobile.yml'
+      - 'jac-client/**'
 
-  # Manual trigger with options
   workflow_dispatch:
     inputs:
       platform:
@@ -16,48 +25,53 @@ on:
         required: true
         type: choice
         options:
-          - all
-          - ios
           - android
-        default: 'all'
-      profile:
-        description: 'Build profile'
+        default: 'android'
+      build_type:
+        description: 'Build type'
         required: true
         type: choice
         options:
-          - development
-          - preview
-          - production
-        default: 'preview'
+          - debug
+          - release
+        default: 'debug'
       app_path:
         description: 'Path to the app to build'
         required: false
         default: 'jac-client/jac_client/examples/all-in-one'
 
-jobs:
-  build-mobile:
-    runs-on: ubuntu-latest
-    env:
-      BUILD_PROFILE: ${{ github.event.inputs.profile || 'preview' }}
-      APP_PATH: ${{ github.event.inputs.app_path || 'jac-client/jac_client/examples/all-in-one' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Dynamically set platform based on input (default to android for push events)
-        platform: ${{ fromJSON((github.event.inputs.platform == 'all' && '["ios", "android"]') || (github.event.inputs.platform && format('["{0}"]', github.event.inputs.platform)) || '["android"]') }}
+permissions:
+  contents: read
 
-    name: Build ${{ matrix.platform }} (${{ github.event.inputs.profile || 'preview' }})
+env:
+  APP_PATH: ${{ github.event.inputs.app_path || 'jac-client/jac_client/examples/all-in-one' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'debug' }}
+
+jobs:
+  build-android:
+    name: Build Android (${{ github.event.inputs.build_type || 'debug' }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: 3.12
+          python-version: '3.12'
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -67,13 +81,7 @@ jobs:
       - name: Install Yarn
         run: npm install -g yarn
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
-
-      - name: Verify EAS CLI installation
-        run: eas --version
-
-      - name: Install Python dependencies
+      - name: Install Python dependencies (jaclang + jac-client)
         run: |
           python -m pip install --upgrade pip
           pip install -e jac
@@ -82,115 +90,105 @@ jobs:
       - name: Verify jac installation
         run: jac --version
 
-      - name: Check if mobile directory exists
-        id: check_mobile
+      - name: Setup mobile project (idempotent)
         working-directory: ${{ env.APP_PATH }}
         run: |
           if [ -d "mobile" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Mobile directory exists"
+            echo "Mobile directory already exists — skipping scaffold."
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Mobile directory does not exist, will run setup"
+            jac setup mobile
           fi
 
-      - name: Setup mobile project (if needed)
-        if: steps.check_mobile.outputs.exists == 'false'
+      - name: Prepare mobile bundle (web → mobile, skip EAS)
         working-directory: ${{ env.APP_PATH }}
-        run: |
-          echo "Running jac setup mobile..."
-          jac setup mobile
-
-      - name: Install mobile dependencies
-        working-directory: ${{ env.APP_PATH }}/mobile
-        run: |
-          echo "Installing dependencies with yarn..."
-          yarn install
-
-      - name: Authenticate with Expo
-        working-directory: ${{ env.APP_PATH }}/mobile
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          JAC_MOBILE_SKIP_EAS: "1"
         run: |
-          echo "Authenticating with Expo..."
-          eas whoami || echo "Not logged in, using EXPO_TOKEN from secrets"
+          # With JAC_MOBILE_SKIP_EAS=1 the plugin stops after the bundle
+          # lands in .jac/mobile/ with node_modules installed.
+          jac build --client mobile --platform android --build-type preview
 
-      - name: Build mobile app for ${{ matrix.platform }}
-        working-directory: ${{ env.APP_PATH }}/mobile
+      - name: Verify build artifacts
+        working-directory: ${{ env.APP_PATH }}/.jac/mobile
+        run: |
+          test -f app.json || (echo "Missing app.json" && exit 1)
+          test -f package.json || (echo "Missing package.json" && exit 1)
+          test -d node_modules || (echo "Missing node_modules" && exit 1)
+          test -f assets/jac-app/bundle.ts || (echo "Missing bundle.ts" && exit 1)
+          echo "Bundle directory looks good."
+
+      - name: Generate native Android project (expo prebuild)
+        working-directory: ${{ env.APP_PATH }}/.jac/mobile
+        run: |
+          npx expo prebuild --platform android --clean --no-install
+
+      # ── Release signing (only runs if all three secrets are present) ──
+      # Configure secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,
+      # ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD to enable signed release
+      # builds. See .github/MOBILE_CICD.md for the full setup.
+      - name: Decode signing keystore
+        id: keystore
+        if: env.BUILD_TYPE == 'release' && env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: ${{ env.APP_PATH }}/.jac/mobile/android/app
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          echo "Starting EAS build for ${{ matrix.platform }} with profile ${{ env.BUILD_PROFILE }}..."
-          eas build \
-            --platform ${{ matrix.platform }} \
-            --profile ${{ env.BUILD_PROFILE }} \
-            --non-interactive \
-            --wait
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          echo "keystore_present=true" >> "$GITHUB_OUTPUT"
 
-      - name: Get build information
-        id: build_info
-        working-directory: ${{ env.APP_PATH }}/mobile
+      - name: Build APK
+        id: gradle
+        working-directory: ${{ env.APP_PATH }}/.jac/mobile/android
         env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Get the latest build ID
-          BUILD_ID=$(eas build:list --platform ${{ matrix.platform }} --limit 1 --json | jq -r '.[0].id')
-          echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
-
-          # Get the build artifact URL
-          ARTIFACT_URL=$(eas build:list --platform ${{ matrix.platform }} --limit 1 --json | jq -r '.[0].artifacts.buildUrl')
-          echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
-
-          # Get build status
-          BUILD_STATUS=$(eas build:list --platform ${{ matrix.platform }} --limit 1 --json | jq -r '.[0].status')
-          echo "build_status=$BUILD_STATUS" >> $GITHUB_OUTPUT
-
-          echo "Build ID: $BUILD_ID"
-          echo "Build Status: $BUILD_STATUS"
-          echo "Artifact URL: $ARTIFACT_URL"
-
-      - name: Download build artifact
-        if: steps.build_info.outputs.build_status == 'finished'
-        working-directory: ${{ env.APP_PATH }}/mobile
-        run: |
-          # Download the build artifact
-          ARTIFACT_URL="${{ steps.build_info.outputs.artifact_url }}"
-
-          if [ "${{ matrix.platform }}" = "android" ]; then
-            if [ "${{ env.BUILD_PROFILE }}" = "production" ]; then
-              EXT="aab"
-            else
-              EXT="apk"
-            fi
-            curl -L -o "app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}.$EXT" "$ARTIFACT_URL"
+          chmod +x ./gradlew
+          if [ "$BUILD_TYPE" = "release" ] && [ "${{ steps.keystore.outputs.keystore_present }}" = "true" ]; then
+            echo "Building signed release APK..."
+            ./gradlew assembleRelease \
+              -PMYAPP_RELEASE_STORE_FILE=release.keystore \
+              -PMYAPP_RELEASE_STORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD" \
+              -PMYAPP_RELEASE_KEY_ALIAS="$ANDROID_KEY_ALIAS" \
+              -PMYAPP_RELEASE_KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
+            echo "apk_path=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
+            echo "apk_variant=release" >> "$GITHUB_OUTPUT"
           else
-            curl -L -o "app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}.tar.gz" "$ARTIFACT_URL"
+            if [ "$BUILD_TYPE" = "release" ]; then
+              echo "WARNING: release build requested but signing secrets missing — falling back to debug APK."
+            fi
+            echo "Building debug APK..."
+            ./gradlew assembleDebug
+            echo "apk_path=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+            echo "apk_variant=debug" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload artifact to GitHub
-        if: steps.build_info.outputs.build_status == 'finished'
+      - name: Verify APK exists
+        working-directory: ${{ env.APP_PATH }}/.jac/mobile/android
+        run: |
+          test -f "${{ steps.gradle.outputs.apk_path }}" \
+            || (echo "APK not produced at ${{ steps.gradle.outputs.apk_path }}" && exit 1)
+          ls -lh "${{ steps.gradle.outputs.apk_path }}"
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}-${{ github.run_number }}
-          path: |
-            ${{ env.APP_PATH }}/mobile/app-${{ matrix.platform }}-${{ env.BUILD_PROFILE }}.*
+          name: android-${{ steps.gradle.outputs.apk_variant }}-${{ github.run_number }}
+          path: ${{ env.APP_PATH }}/.jac/mobile/android/${{ steps.gradle.outputs.apk_path }}
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
 
-      - name: Build Summary
+      - name: Build summary
         if: always()
         run: |
-          echo "## Mobile Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Platform | ${{ matrix.platform }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Profile | ${{ env.BUILD_PROFILE }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build ID | ${{ steps.build_info.outputs.build_id }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Status | ${{ steps.build_info.outputs.build_status }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Artifact | [Download](${{ steps.build_info.outputs.artifact_url }}) |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### View on Expo" >> $GITHUB_STEP_SUMMARY
-          echo "Build ID: \`${{ steps.build_info.outputs.build_id }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Run \`eas build:view ${{ steps.build_info.outputs.build_id }}\` for details" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Android Build"
+            echo ""
+            echo "| Property | Value |"
+            echo "|---|---|"
+            echo "| Variant | ${{ steps.gradle.outputs.apk_variant || 'failed' }} |"
+            echo "| APK | \`${{ steps.gradle.outputs.apk_path || '—' }}\` |"
+            echo "| App path | \`${{ env.APP_PATH }}\` |"
+            echo "| Artifact | \`android-${{ steps.gradle.outputs.apk_variant }}-${{ github.run_number }}\` (downloadable above) |"
+          } >> "$GITHUB_STEP_SUMMARY"

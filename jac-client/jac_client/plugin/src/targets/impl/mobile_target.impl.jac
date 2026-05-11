@@ -172,7 +172,10 @@ impl MobileTarget.build(
     platform: Optional[str] = None,
     build_type: str = "production"
 ) -> Path {
-    use_eas: bool = True;
+    # Allow CI/local-runner builds to skip the EAS cloud submission and stop
+    # after the bundle is prepared in .jac/mobile/.  Set JAC_MOBILE_SKIP_EAS=1
+    # to take this path (e.g. when building the APK natively on a runner).
+    use_eas: bool = os.environ.get("JAC_MOBILE_SKIP_EAS", "") != "1";
     console.print("\n📱 Building mobile app (React Native)", style="bold");
 
     mobile_src_dir = project_dir / "mobile";
