@@ -29,6 +29,8 @@ import from jac_client.plugin.src.targets.mobile.bundle_helpers {
     _create_mobile_bundle
 }
 import from jac_client.plugin.src.targets.mobile.dev_helpers {
+    MOBILE_DEV_API_PORT,
+    MOBILE_VITE_PORT,
     _get_local_ip,
     _write_dev_config,
     _write_build_config,
@@ -76,82 +78,68 @@ impl MobileTarget.setup(project_dir: Path) -> None {
         raise RuntimeError(f"Failed to create mobile directory: {e}");
     }
 
+    import from jac_client.plugin.src.mobile_config { MobileConfig }
     try {
-        import from jac_client.plugin.src.mobile_config { MobileConfig }
+        mobile_config = MobileConfig(project_dir=project_dir);
+        config_data = mobile_config.load();
+        project_name = config_data.get('name', 'my-jac-app');
+        project_version = config_data.get('version', '1.0.0');
+        bundle_id = config_data.get('bundle_id', 'com.example.myjacapp');
+    } except Exception as e {
+        console.warning(f"  Failed to load mobile config: {e}, using defaults");
+        project_name = 'my-jac-app';
+        project_version = '1.0.0';
+        bundle_id = 'com.example.myjacapp';
+    }
+
+    console.print(
+        f"  Project: {project_name} v{project_version}, bundle: {bundle_id}",
+        style="muted"
+    );
+
+    for (fn, label) in [
+        (lambda : _generate_app_json_from_toml(mobile_dir, project_dir), "app.json"),
+        (lambda : _generate_package_json(mobile_dir, project_name), "package.json"),
+        (lambda : _generate_tsconfig(mobile_dir), "tsconfig.json"),
+        (lambda : _generate_webview_screen(mobile_dir), "app/index.tsx"),
+        (lambda : _generate_bundle_script(mobile_dir), "create-bundle.js"),
+        (lambda : _generate_layout_file(mobile_dir), "app/_layout.tsx"),
+        (
+            lambda :
+                _add_mobile_config(
+                    project_dir, project_name, bundle_id, project_version
+                ),
+            "[mobile] in jac.toml"
+        ),
+        (lambda : _generate_placeholder_icons(mobile_dir), "placeholder icons"),
+        (lambda : _generate_gitignore(mobile_dir), ".gitignore"),
+
+    ] {
         try {
-            mobile_config = MobileConfig(project_dir=project_dir);
-            config_data = mobile_config.load();
-            project_name = config_data.get('name', 'my-jac-app');
-            project_version = config_data.get('version', '1.0.0');
-            bundle_id = config_data.get('bundle_id', 'com.example.myjacapp');
+            fn();
         } except Exception as e {
-            console.warning(f"  Failed to load mobile config: {e}, using defaults");
-            project_name = 'my-jac-app';
-            project_version = '1.0.0';
-            bundle_id = 'com.example.myjacapp';
-        }
-
-        console.print(
-            f"  Project: {project_name} v{project_version}, bundle: {bundle_id}",
-            style="muted"
-        );
-
-        for (fn, label) in [
-            (
-                lambda : _generate_app_json_from_toml(mobile_dir, project_dir),
-                "app.json"
-            ),
-            (lambda : _generate_package_json(mobile_dir, project_name), "package.json"),
-            (lambda : _generate_tsconfig(mobile_dir), "tsconfig.json"),
-            (lambda : _generate_webview_screen(mobile_dir), "app/index.tsx"),
-            (lambda : _generate_bundle_script(mobile_dir), "create-bundle.js"),
-            (lambda : _generate_layout_file(mobile_dir), "app/_layout.tsx"),
-            (
-                lambda :
-                    _add_mobile_config(
-                        project_dir, project_name, bundle_id, project_version
-                    ),
-                "[mobile] in jac.toml"
-            ),
-            (lambda : _generate_placeholder_icons(mobile_dir), "placeholder icons"),
-            (lambda : _generate_gitignore(mobile_dir), ".gitignore"),
-
-        ] {
-            try {
-                fn();
-            } except Exception as e {
-                console.warning(f"  Failed to generate {label}: {e}");
-            }
-        }
-
-        console.print("\n📦 Checking required dependencies...", style="bold");
-        try {
-            _check_mobile_dependencies();
-        } except Exception as e {
-            console.warning(f"  Dependency check issue: {e}");
-        }
-
-        console.success("Mobile target setup complete!");
-        console.print("\n💡 Source files created in mobile/ directory", style="bold");
-        console.print(
-            "   Dependencies & bundles will be in .jac/mobile/ during build/dev",
-            style="muted"
-        );
-        console.print("\nNext steps:", style="bold");
-        console.print(
-            "  jac build main.jac --client mobile -p android -b development",
-            style="muted"
-        );
-        console.print("  jac start main.jac --client mobile --dev", style="muted");
-    } finally {
-        if not mobile_dir.exists() {
-            try {
-                mobile_dir.mkdir(parents=True, exist_ok=True);
-            } except Exception as e {
-                console.error(f"  CRITICAL: Could not create mobile directory: {e}");
-            }
+            console.warning(f"  Failed to generate {label}: {e}");
         }
     }
+
+    console.print("\n📦 Checking required dependencies...", style="bold");
+    try {
+        _check_mobile_dependencies();
+    } except Exception as e {
+        console.warning(f"  Dependency check issue: {e}");
+    }
+
+    console.success("Mobile target setup complete!");
+    console.print("\n💡 Source files created in mobile/ directory", style="bold");
+    console.print(
+        "   Dependencies & bundles will be in .jac/mobile/ during build/dev",
+        style="muted"
+    );
+    console.print("\nNext steps:", style="bold");
+    console.print(
+        "  jac build main.jac --client mobile -p android -b development", style="muted"
+    );
+    console.print("  jac start main.jac --client mobile --dev", style="muted");
 }
 
 # ============================================================================
@@ -210,7 +198,7 @@ impl MobileTarget.build(
 # ============================================================================
 """Start mobile dev server — Vite HMR + backend + Expo dev client."""
 impl MobileTarget.dev(
-    entry_file: Path, project_dir: Path, api_port: int = 8000
+    entry_file: Path, project_dir: Path, api_port: int = MOBILE_DEV_API_PORT
 ) -> None {
     import signal;
     import sys;
@@ -226,7 +214,7 @@ impl MobileTarget.dev(
 
     local_ip = _get_local_ip();
     console.print(f"  Detected local IP: {local_ip}", style="muted");
-    _write_dev_config(mobile_build_dir, project_dir, local_ip);
+    _write_dev_config(mobile_build_dir, project_dir, local_ip, api_port);
 
     console.print("  Step 1: Building web bundle for bundled mode...", style="muted");
     web_bundle_path = super.build(entry_file, project_dir, None);
@@ -236,7 +224,10 @@ impl MobileTarget.dev(
     _copy_web_bundle_to_mobile(web_bundle_path, mobile_build_dir);
     _create_mobile_bundle(mobile_build_dir);
 
-    console.print("  Step 3: Starting Vite dev server on port 5173...", style="muted");
+    console.print(
+        f"  Step 3: Starting Vite dev server on port {MOBILE_VITE_PORT}...",
+        style="muted"
+    );
     vite_process = _start_vite_dev_server(entry_file, project_dir, api_port);
     console.print(f"  ✔ Vite dev server running", style="success");
 
@@ -285,7 +276,9 @@ impl MobileTarget.dev(
             "  Scan QR code with Expo Go app to test on device", style="muted"
         );
         console.print(f"\n  🌐 Dev Server URLs (IP: {local_ip}):", style="bold");
-        console.print(f"     Vite dev server: http://{local_ip}:5173", style="muted");
+        console.print(
+            f"     Vite dev server: http://{local_ip}:{MOBILE_VITE_PORT}", style="muted"
+        );
         console.print(f"     Backend API: http://{local_ip}:{api_port}", style="muted");
         console.print("\n  💡 Two rendering modes:", style="bold");
         console.print(
@@ -319,7 +312,7 @@ triggering a full native build.  Unlike dev(), no Vite server is
 started — Expo loads the pre-built assets only.
 """
 impl MobileTarget.start(
-    entry_file: Path, project_dir: Path, api_port: int = 8000
+    entry_file: Path, project_dir: Path, api_port: int = MOBILE_DEV_API_PORT
 ) -> None {
     import signal;
     import sys;
@@ -335,7 +328,7 @@ impl MobileTarget.start(
 
     local_ip = _get_local_ip();
     console.print(f"  Detected local IP: {local_ip}", style="muted");
-    _write_dev_config(mobile_build_dir, project_dir, local_ip);
+    _write_dev_config(mobile_build_dir, project_dir, local_ip, api_port);
 
     console.print("  Building web bundle...", style="muted");
     web_bundle_path = super.build(entry_file, project_dir, None);

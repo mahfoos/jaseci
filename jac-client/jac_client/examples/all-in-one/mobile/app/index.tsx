@@ -16,11 +16,12 @@ if (!USE_DEV_SERVER) {
   }
 }
 
-// Load dev server configuration
-let DEV_CONFIG = { localIP: '127.0.0.1', productionApiUrl: '' };
+// Load dev server configuration (ports come from dev-config.json so they
+// always match what `jac start --client mobile --dev` actually launched).
+let DEV_CONFIG = { localIP: '127.0.0.1', devApiPort: 9000, vitePort: 5173, productionApiUrl: '' };
 try {
   const config = require('../dev-config.json');
-  DEV_CONFIG = config;
+  DEV_CONFIG = { ...DEV_CONFIG, ...config };
 } catch (e) {
   console.warn('Dev config not found, using defaults');
 }
@@ -28,18 +29,20 @@ try {
 // Configuration for URLs
 const getDevServerUrl = () => {
   const localIP = DEV_CONFIG.localIP || '127.0.0.1';
-  return `http://${localIP}:5173`;
+  const vitePort = DEV_CONFIG.vitePort || 5173;
+  return `http://${localIP}:${vitePort}`;
 };
 
 const getBackendApiUrl = () => {
   if (__DEV__) {
     const localIP = DEV_CONFIG.localIP || '127.0.0.1';
+    const apiPort = DEV_CONFIG.devApiPort || 9000;
     // Android emulator alias for host loopback; only used when IP detection
     // falls back to 127.x (e.g. single-interface machine).
     if (Platform.OS === 'android' && (localIP === '127.0.0.1' || localIP === 'localhost')) {
-      return 'http://10.0.2.2:9000';
+      return `http://10.0.2.2:${apiPort}`;
     }
-    return `http://${localIP}:9000`;
+    return `http://${localIP}:${apiPort}`;
   }
   // Production: read from dev-config.json (written by jac start/build from jac.toml)
   if (!DEV_CONFIG.productionApiUrl) {
@@ -72,10 +75,10 @@ export default function JacWebViewScreen() {
       if (!JAC_BUNDLE_HTML) {
         throw new Error('Bundle not available');
       }
-      // Inject the backend API URL into the bundle
+      // Inject the backend API URL using the explicit placeholder marker
       const html = JAC_BUNDLE_HTML.replace(
-        `window.JAC_BACKEND_URL = window.JAC_BACKEND_URL || 'http://localhost:9000';`,
-        `window.JAC_BACKEND_URL = '${backendApiUrl}';`
+        `'%%__JAC_BACKEND_URL__%%'`,
+        `'${backendApiUrl}'`
       );
 
       setHtmlContent(html);

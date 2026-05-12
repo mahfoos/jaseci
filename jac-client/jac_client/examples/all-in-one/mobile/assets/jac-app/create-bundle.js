@@ -36,9 +36,9 @@ const html = `<!DOCTYPE html>
     ${jacInitConfig}
     </script>
 
-    <!-- Backend API URL - will be injected by mobile app -->
+    <!-- Backend API URL placeholder - replaced at runtime by the mobile app -->
     <script>
-        window.JAC_BACKEND_URL = window.JAC_BACKEND_URL || 'http://localhost:9000';
+        window.JAC_BACKEND_URL = '%%__JAC_BACKEND_URL__%%';
     </script>
 
     <!-- Jac client bundle as blob URL -->

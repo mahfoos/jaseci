@@ -537,6 +537,16 @@ def _handle_start_target(ctx: HookContext) -> None {
     ctx.set_data("start_client_target", target);
 
     api_port = ctx.get_arg("port", 8000);
+    # The core `jac start` --port arg defaults to 8000; the mobile dev backend's
+    # canonical port is MOBILE_DEV_API_PORT.  Honour an explicit --port, else
+    # use ours so the dev backend and the WebView (which reads the port out of
+    # dev-config.json) agree without the user passing --port.
+    if target_name == "mobile" and api_port == 8000 {
+        import from jac_client.plugin.src.targets.mobile.dev_helpers {
+            MOBILE_DEV_API_PORT
+        }
+        api_port = MOBILE_DEV_API_PORT;
+    }
 
     # Handle non-web targets (desktop, pwa, mobile) - they override dev/start behavior
     if target_name != "web" {

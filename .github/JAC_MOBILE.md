@@ -284,8 +284,10 @@ same build steps as the local release path above, on `ubuntu-latest`.
    generates the native `android/` project.
 6. **Configure release signing** — uses the real keystore from secrets if
    all four `ANDROID_*` secrets are set, else auto-generates a throwaway
-   keystore via `keytool`. Patches `android/app/build.gradle` to wire the
-   keystore into the `release` signing config.
+   keystore via `keytool`. Appends a self-contained `android { signingConfigs
+   { ciRelease … } buildTypes { release { signingConfig … } } }` block to
+   `android/app/build.gradle` (re-opens the `android {}` extension rather than
+   regex-patching Expo's layout, so it's robust to template changes).
 7. **`./gradlew assembleRelease`** — produces the signed release APK.
 8. **Uploads** the APK as `android-release-<run#>` (downloadable from
    the workflow run page).
@@ -592,12 +594,13 @@ The web bundle wasn't embedded. Check `Verify build artifacts` found
 `assets/jac-app/bundle.ts`. If missing, an earlier Python error was
 swallowed.
 
-**Release APK build fails — missing signing config.**
-The workflow patches `android/app/build.gradle` to add a release
-signing config. If Expo's prebuild template structure changes, the
-regex may miss — the patch script prints
-*"Could not find signingConfigs block"* and fails. Inspect the
-generated `build.gradle` and update the regex.
+**Release APK build fails — `Could not get unknown property 'MYAPP_RELEASE_STORE_FILE'`.**
+The `Configure release signing` step writes the `MYAPP_RELEASE_*` values
+into `android/gradle.properties` and appends a signing block to
+`android/app/build.gradle`. If the build step ran without the signing
+step having run first (e.g. a re-run starting mid-job), those properties
+won't exist. Re-run the whole job. The signing block is appended fresh
+each run and guarded against double-append by a marker comment.
 
 **APK installs once but won't update next CI run.**
 Throwaway-keystore fallback was used. Each CI run generates a fresh

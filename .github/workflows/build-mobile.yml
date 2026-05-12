@@ -47,6 +47,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -55,11 +56,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            jac/pyproject.toml
+            jac-client/pyproject.toml
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v4
+        with:
+          # yarn v1's global cache dir on Linux runners. No yarn.lock is
+          # committed (it's generated under .jac/mobile/), so key on the
+          # example's package.json instead.
+          path: ~/.cache/yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('**/mobile/package.json') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-
 
       - name: Install Yarn
         run: npm install -g yarn
@@ -112,10 +128,12 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] \
-             && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] \
-             && [ -n "$ANDROID_KEY_ALIAS" ] \
-             && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+          set -euo pipefail
+
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] \
+             && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] \
+             && [ -n "${ANDROID_KEY_ALIAS:-}" ] \
+             && [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
             echo "::notice::Signing release APK with keystore from repository secrets"
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/release.keystore
             STORE_PWD="$ANDROID_KEYSTORE_PASSWORD"
@@ -135,8 +153,10 @@ jobs:
             echo "signing_mode=throwaway-keystore" >> "$GITHUB_OUTPUT"
           fi
 
-          # Pass keystore credentials to Gradle via gradle.properties so the
-          # patched build.gradle below can pick them up.
+          # The keystore must exist before we point Gradle at it — fail loudly otherwise.
+          test -f app/release.keystore || { echo "::error::release.keystore was not created"; exit 1; }
+
+          # Pass keystore credentials to Gradle via gradle.properties.
           {
             echo ""
             echo "MYAPP_RELEASE_STORE_FILE=release.keystore"
@@ -145,55 +165,37 @@ jobs:
             echo "MYAPP_RELEASE_KEY_PASSWORD=$KEY_PWD"
           } >> gradle.properties
 
-          # Patch app/build.gradle:
-          #   1. Add a `release` block inside signingConfigs that reads the
-          #      MYAPP_RELEASE_* gradle properties.
-          #   2. Switch the release buildType to use signingConfigs.release
-          #      instead of signingConfigs.debug (Expo's default).
-          python3 - <<'PYEOF'
-          from pathlib import Path
-          import re
-
-          p = Path('app/build.gradle')
-          t = p.read_text()
-
-          if 'MYAPP_RELEASE_STORE_FILE' in t:
-              print('build.gradle already has release signing config; skipping patch')
-          else:
-              release_block = """
-                      release {
-                          if (project.hasProperty('MYAPP_RELEASE_STORE_FILE')) {
-                              storeFile file(MYAPP_RELEASE_STORE_FILE)
-                              storePassword MYAPP_RELEASE_STORE_PASSWORD
-                              keyAlias MYAPP_RELEASE_KEY_ALIAS
-                              keyPassword MYAPP_RELEASE_KEY_PASSWORD
-                          }
-                      }
-          """
-              t_new = re.sub(
-                  r'(signingConfigs\s*\{)',
-                  r'\1' + release_block,
-                  t,
-                  count=1,
-              )
-              if t_new == t:
-                  raise SystemExit('Could not find signingConfigs block in build.gradle')
-              t = t_new
-
-              t_new = re.sub(
-                  r'(buildTypes\s*\{[^}]*?release\s*\{[^}]*?)signingConfig\s+signingConfigs\.debug',
-                  r'\1signingConfig signingConfigs.release',
-                  t,
-                  count=1,
-                  flags=re.DOTALL,
-              )
-              if t_new == t:
-                  print('NOTE: release buildType did not reference signingConfigs.debug — leaving as-is')
-              t = t_new
-
-              p.write_text(t)
-              print('Patched build.gradle for release signing')
-          PYEOF
+          # Append a self-contained release-signing block to app/build.gradle.
+          # We intentionally do NOT regex-patch Expo's generated layout — we
+          # re-open the `android { }` extension (Gradle allows this) and
+          # override the release buildType's signingConfig.  If Expo's template
+          # changes shape this still works; if the keystore or the MYAPP_RELEASE_*
+          # properties are missing, Gradle fails loudly rather than silently
+          # falling back to the debug keystore.
+          if grep -q 'CI release signing (appended)' app/build.gradle; then
+            echo "CI release signing block already present; skipping append"
+          else
+            {
+              echo ""
+              echo "// === CI release signing (appended by .github/workflows/build-mobile.yml) ==="
+              echo "android {"
+              echo "    signingConfigs {"
+              echo "        ciRelease {"
+              echo "            storeFile file(MYAPP_RELEASE_STORE_FILE)"
+              echo "            storePassword MYAPP_RELEASE_STORE_PASSWORD"
+              echo "            keyAlias MYAPP_RELEASE_KEY_ALIAS"
+              echo "            keyPassword MYAPP_RELEASE_KEY_PASSWORD"
+              echo "        }"
+              echo "    }"
+              echo "    buildTypes {"
+              echo "        release {"
+              echo "            signingConfig signingConfigs.ciRelease"
+              echo "        }"
+              echo "    }"
+              echo "}"
+            } >> app/build.gradle
+            echo "Appended CI release signing block to app/build.gradle"
+          fi
 
       - name: Build release APK
         id: gradle

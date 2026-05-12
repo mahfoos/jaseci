@@ -10,6 +10,12 @@ import subprocess;
 import json;
 import os;
 
+# Single source of truth for the dev ports.  The generated WebView screen
+# (setup_helpers._generate_webview_screen) reads these out of dev-config.json
+# rather than hardcoding them, so the dev backend and the WebView always agree.
+glob MOBILE_DEV_API_PORT: int = 9000,
+     MOBILE_VITE_PORT: int = 5173;
+
 """Return http://127.0.0.1:{port}."""
 def _make_localhost_url(port: int) -> str {
     return f"http://127.0.0.1:{port}";
@@ -22,37 +28,51 @@ def _get_toml_api_base_url(project_dir: Path) -> str {
     return config_loader.get_api_config().get('base_url', '');
 }
 
-"""Get local network IP using only local-only OS calls (no external network)."""
+"""Get the LAN IP a mobile device on the same network would use to reach this host.
+
+Primary method: open a UDP socket and `connect()` it toward a public address.
+UDP connect sends no packets — it just makes the kernel pick the source IP it
+would route from, which is the routable LAN address.  Falls back to hostname
+resolution (which on Ubuntu/Debian often returns 127.0.1.1, hence not primary),
+then to loopback as a last resort.
+"""
 def _get_local_ip -> str {
     import socket;
 
+    # Method 1: UDP-connect trick — no traffic, just resolves the source IP.
     try {
-        # Method 1: resolve all addresses for the local hostname and pick the
-        # first routable (non-loopback) IPv4 address.  Works fully offline.
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM);
+        try {
+            s.connect(("8.8.8.8", 80));
+            ip = str(s.getsockname()[0]);
+        } finally {
+            s.close();
+        }
+        if ip and not ip.startswith("127.") {
+            return ip;
+        }
+    } except Exception { }
+
+    # Method 2: hostname resolution (works offline; may yield 127.0.1.1).
+    try {
         hostname = socket.gethostname();
         for info in socket.getaddrinfo(hostname, None, socket.AF_INET) {
-            ip = info[4][0];
-            if not ip.startswith('127.') {
+            ip = str(info[4][0]);
+            if not ip.startswith("127.") {
                 return ip;
             }
         }
-
-        # Method 2: gethostbyname_ex returns (hostname, aliaslist, ipaddrlist).
-        # Also works offline on machines with multiple interfaces.
         (_h, _aliases, addr_list) = socket.gethostbyname_ex(hostname);
         for ip in addr_list {
-            if not ip.startswith('127.') {
-                return ip;
+            if not str(ip).startswith("127.") {
+                return str(ip);
             }
         }
+    } except Exception { }
 
-        # Fallback: only loopback found (single-interface machine or unusual
-        # network config); mobile device can't reach this but it's the best
-        # we can report.
-        return '127.0.0.1';
-    } except Exception {
-        return '127.0.0.1';
-    }
+    # Last resort: only loopback found — a phone can't reach this, but it's
+    # the best we can report.
+    return "127.0.0.1";
 }
 
 """Resolve the production API URL: env var JAC_MOBILE_API_URL wins, else jac.toml [mobile.features].api_url, else ''."""
@@ -71,17 +91,35 @@ def _resolve_production_api_url(project_dir: Path) -> str {
     }
 }
 
-"""Write dev-config.json with local IP and production API URL for the app."""
-def _write_dev_config(mobile_dir: Path, project_dir: Path, local_ip: str) {
+"""Write dev-config.json with local IP, dev ports, and production API URL.
+
+`api_port` is the port the local `jac start` backend listens on; the WebView
+reads it (and `vitePort`) from this file so dev mode is self-consistent even
+when the caller overrides the port.
+"""
+def _write_dev_config(
+    mobile_dir: Path,
+    project_dir: Path,
+    local_ip: str,
+    api_port: int = MOBILE_DEV_API_PORT
+) {
     production_api_url = _resolve_production_api_url(project_dir);
 
-    dev_config = {'localIP': local_ip, 'productionApiUrl': production_api_url};
+    dev_config = {
+        'localIP': local_ip,
+        'devApiPort': api_port,
+        'vitePort': MOBILE_VITE_PORT,
+        'productionApiUrl': production_api_url
+    };
 
     dev_config_path = mobile_dir / "dev-config.json";
     with open(dev_config_path, "w") as f {
         json.dump(dev_config, f, indent=2);
     }
-    console.print(f"  ✔ Dev config written (IP: {local_ip})", style="success");
+    console.print(
+        f"  ✔ Dev config written (IP: {local_ip}, API port: {api_port})",
+        style="success"
+    );
 }
 
 """Write dev-config.json for a release build — only productionApiUrl matters."""
@@ -127,7 +165,9 @@ def _start_vite_dev_server(
             is_dev=True,
             api_port=api_port
         );
-        process = bundler.start_dev_server(port=5173, suppress_initial_output=True);
+        process = bundler.start_dev_server(
+            port=MOBILE_VITE_PORT, suppress_initial_output=True
+        );
         return process;
     } except Exception as e {
         raise RuntimeError(f"Failed to start Vite dev server: {e}");
