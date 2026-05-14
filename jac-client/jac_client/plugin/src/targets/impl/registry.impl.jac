@@ -118,7 +118,7 @@ impl TargetFactory.get_default(project_dir: Path) -> ClientTarget {
 impl TargetFactory.get_available_targets -> list[TargetType] {
     # Import inside function to avoid circular import
     import from jac_client.plugin.src.targets.registry { TargetType }
-    return [TargetType.WEB, TargetType.DESKTOP, TargetType.PWA];
+    return [TargetType.WEB, TargetType.DESKTOP, TargetType.PWA, TargetType.MOBILE];
 }
 
 """Get list of available target names as strings."""

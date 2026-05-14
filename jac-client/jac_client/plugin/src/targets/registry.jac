@@ -59,9 +59,14 @@ class ClientTarget {
         build_type: str = "production"
     ) -> Path abs;
 
-    """Start dev server for the target."""
+    """Start dev server for the target. Matches core `jac start --dev`: `port` is the Vite
+    dev server port, `api_port` is the Jac API (0 means port+1)."""
     def dev(
-        self: ClientTarget, entry_file: Path, project_dir: Path, api_port: int = 8000
+        self: ClientTarget,
+        entry_file: Path,
+        project_dir: Path,
+        port: int = 8000,
+        api_port: int = 0
     ) -> None abs;
 
     """Start the target (production mode - build and run)."""
