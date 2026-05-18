@@ -37,6 +37,13 @@ import from jac_client.plugin.src.targets.mobile.dev_helpers {
     _start_vite_dev_server,
     _start_backend_server
 }
+import from jac_client.plugin.src.mobile_dev_host {
+    resolve_mobile_dev_host,
+    resolve_mobile_vite_port
+}
+import from jac_client.plugin.src.targets.mobile.dev {
+    _mobile_setup_android_port_reverse
+}
 
 # ============================================================================
 # MobileTarget.setup — scaffold the mobile/ source directory
@@ -219,7 +226,13 @@ impl MobileTarget.dev(
 
     _prepare_build_dir(mobile_src_dir, mobile_build_dir);
 
-    local_ip = _get_local_ip();
+    plat = os.environ.get("JAC_MOBILE_PLATFORM", "auto");
+    host_override = os.environ.get("JAC_MOBILE_DEV_HOST", "");
+    local_ip = resolve_mobile_dev_host(plat, host_override);
+    port = api_port;
+    vite_port = resolve_mobile_vite_port(project_dir, port);
+    server_port = api_port;
+    _mobile_setup_android_port_reverse(vite_port, server_port);
     console.print(f"  Detected local IP: {local_ip}", style="muted");
     _write_dev_config(mobile_build_dir, project_dir, local_ip, api_port);
 
