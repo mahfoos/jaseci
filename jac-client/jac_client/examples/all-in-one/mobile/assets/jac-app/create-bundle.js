@@ -68,7 +68,7 @@ console.log('✓ Created bundle.html');
 
 // Also create TypeScript export
 const tsContent = `// Auto-generated standalone Jac app bundle
-export const JAC_BUNDLE_HTML = \`${html.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`;
+export const JAC_BUNDLE_HTML = \`${html.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`;
 `;
 
 fs.writeFileSync(path.join(__dirname, 'bundle.ts'), tsContent);

@@ -84,8 +84,8 @@ def _resolve_production_api_url(project_dir: Path) -> str {
     import from jac_client.plugin.src.mobile_config { MobileConfig }
     try {
         mobile_config = MobileConfig(project_dir=project_dir);
-        config_data = mobile_config.load();
-        return config_data.get('features', {}).get('api_url', '') or '';
+        features = mobile_config.get_features_config();
+        return features.get('api_url', '') or '';
     } except Exception {
         return '';
     }

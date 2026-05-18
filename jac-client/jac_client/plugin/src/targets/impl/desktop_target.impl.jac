@@ -1654,8 +1654,7 @@ Uses super().build() to get the web bundle, then adds sidecar and Tauri wrapping
 impl DesktopTarget.build(
     entry_file: Path,
     project_dir: Path,
-    platform: Optional[str] = None,
-    build_type: str = "production"
+    platform: Optional[str] = None
 ) -> Path {
     import from jac_client.plugin.src.vite_bundler { ViteBundler }
     import platform as platform_mod;

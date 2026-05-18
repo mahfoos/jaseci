@@ -21,8 +21,7 @@ obj WebTarget(ClientTarget) {
     override def build(
         entry_file: Path,
         project_dir: Path,
-        platform: Optional[str] = None,
-        build_type: str = "production"
+        platform: Optional[str] = None
     ) -> Path;
 
     """Start web dev server."""

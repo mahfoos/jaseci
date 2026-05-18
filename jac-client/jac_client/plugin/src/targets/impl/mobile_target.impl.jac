@@ -97,6 +97,7 @@ impl MobileTarget.setup(project_dir: Path) -> None {
         style="muted"
     );
 
+    setup_errors: list[str] = [];
     for (fn, label) in [
         (lambda : _generate_app_json_from_toml(mobile_dir, project_dir), "app.json"),
         (lambda : _generate_package_json(mobile_dir, project_name), "package.json"),
@@ -119,7 +120,13 @@ impl MobileTarget.setup(project_dir: Path) -> None {
             fn();
         } except Exception as e {
             console.warning(f"  Failed to generate {label}: {e}");
+            setup_errors.append(f"{label}: {e}");
         }
+    }
+    if setup_errors {
+        raise RuntimeError(
+            "Mobile setup failed for:\n" + "\n".join(f"  - {e}" for e in setup_errors)
+        );
     }
 
     console.print("\n📦 Checking required dependencies...", style="bold");
@@ -137,7 +144,7 @@ impl MobileTarget.setup(project_dir: Path) -> None {
     );
     console.print("\nNext steps:", style="bold");
     console.print(
-        "  jac build main.jac --client mobile -p android -b development", style="muted"
+        "  jac build main.jac --client mobile -p android", style="muted"
     );
     console.print("  jac start main.jac --client mobile --dev", style="muted");
 }
@@ -153,8 +160,7 @@ Drive it from CI or a local script; see .github/JAC_MOBILE.md.
 impl MobileTarget.build(
     entry_file: Path,
     project_dir: Path,
-    platform: Optional[str] = None,
-    build_type: str = "production"
+    platform: Optional[str] = None
 ) -> Path {
     console.print("\n📱 Building mobile app (React Native)", style="bold");
 
@@ -163,6 +169,10 @@ impl MobileTarget.build(
         raise RuntimeError("Mobile target not set up. Run 'jac setup mobile' first.");
     }
     mobile_build_dir = project_dir / ".jac" / "mobile";
+
+    import from jac_client.plugin.src.mobile_config { MobileConfig }
+    mobile_config = MobileConfig(project_dir=project_dir);
+    mobile_config.validate();
 
     console.print("  Step 1: Preparing build directory...", style="muted");
     _prepare_build_dir(mobile_src_dir, mobile_build_dir);
@@ -202,6 +212,7 @@ impl MobileTarget.dev(
 ) -> None {
     import signal;
     import sys;
+    import os;
     console.print("\n📱 Starting mobile dev server (Expo + HMR)", style="bold");
 
     mobile_src_dir = project_dir / "mobile";
@@ -242,18 +253,24 @@ impl MobileTarget.dev(
 
     expo_process = None;
 
+    def _kill_proc_group(proc: Any) {
+        try {
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM);
+            proc.wait(timeout=5);
+        } except ProcessLookupError {
+            pass;
+        } except Exception {
+            try {
+                proc.kill();
+            } except Exception { }
+        }
+    }
+
     def cleanup {
         console.print("\n  Stopping dev servers...", style="muted");
         for proc in [expo_process, vite_process, server_process] {
             if proc {
-                try {
-                    proc.terminate();
-                    proc.wait(timeout=5);
-                } except Exception {
-                    try {
-                        proc.kill();
-                    } except Exception { }
-                }
+                _kill_proc_group(proc);
             }
         }
         console.print("  ✔ Dev servers stopped", style="success");
@@ -269,7 +286,8 @@ impl MobileTarget.dev(
 
     try {
         expo_process = subprocess.Popen(
-            ["npx", "expo", "start"], cwd=str(mobile_build_dir)
+            ["npx", "expo", "start"], cwd=str(mobile_build_dir),
+            start_new_session=True
         );
         console.success("Expo dev server started!");
         console.print(
@@ -316,6 +334,7 @@ impl MobileTarget.start(
 ) -> None {
     import signal;
     import sys;
+    import os;
     console.print("\n📱 Starting mobile app (bundle mode, no HMR)", style="bold");
 
     mobile_src_dir = project_dir / "mobile";
@@ -344,18 +363,24 @@ impl MobileTarget.start(
 
     expo_process = None;
 
+    def _kill_proc_group_start(proc: Any) {
+        try {
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM);
+            proc.wait(timeout=5);
+        } except ProcessLookupError {
+            pass;
+        } except Exception {
+            try {
+                proc.kill();
+            } except Exception { }
+        }
+    }
+
     def cleanup {
         console.print("\n  Stopping servers...", style="muted");
         for proc in [expo_process, server_process] {
             if proc {
-                try {
-                    proc.terminate();
-                    proc.wait(timeout=5);
-                } except Exception {
-                    try {
-                        proc.kill();
-                    } except Exception { }
-                }
+                _kill_proc_group_start(proc);
             }
         }
         console.print("  ✔ Servers stopped", style="success");
@@ -374,7 +399,8 @@ impl MobileTarget.start(
 
     try {
         expo_process = subprocess.Popen(
-            ["npx", "expo", "start", "--no-dev", "--minify"], cwd=str(mobile_build_dir)
+            ["npx", "expo", "start", "--no-dev", "--minify"], cwd=str(mobile_build_dir),
+            start_new_session=True
         );
         console.success("Expo started in bundle mode!");
         console.print(f"  Backend API: http://{local_ip}:{api_port}", style="muted");

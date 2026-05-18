@@ -53,17 +53,9 @@ with entry {
             "platform",
             typ=str,
             default=None,
-            help="Platform (desktop: windows/macos/linux, mobile: android/ios/all)",
-            choices=["windows", "macos", "linux", "android", "ios", "all"],
+            help="Platform (desktop: windows/macos/linux, mobile: android)",
+            choices=["windows", "macos", "linux", "android"],
             short="p"  # Use -p for platform
-        ),
-        Arg.create(
-            "build_type",
-            typ=str,
-            default="production",
-            help="Build type for mobile (development, preview, production)",
-            choices=["development", "preview", "production"],
-            short="b"  # Use -b for build-type
         ),
         Arg.create(
             "non_interactive",
@@ -80,14 +72,7 @@ with entry {
         ("jac build --client pwa", "Build PWA (Progressive Web App)"),
         ("jac build --client desktop", "Build desktop app"),
         ("jac build --client mobile --platform android", "Build Android mobile app"),
-        ("jac build --client mobile --platform ios", "Build iOS mobile app"),
         ("jac build --client desktop --platform windows", "Build for Windows"),
-        (
-            "jac build --client mobile -b development -p android",
-            "Build mobile dev (Android)"
-        ),
-        ("jac build --client mobile -b preview -p ios", "Build mobile preview (iOS)"),
-        ("jac build --client mobile -b production -p all", "Build for both platforms"),
 
     ],
     group="build",
@@ -97,7 +82,6 @@ def build(
     filename: str = "main.jac",
     client: str = "web",
     platform: str | None = None,
-    build_type: str = "production",
     non_interactive: bool = False
 ) -> int {
     # This will be handled by the pre_hook
@@ -122,9 +106,8 @@ priority replacement by the registry.
     ],
     examples=[
         ("jac setup desktop", "Setup desktop target (Tauri)"),
-        ("jac setup mobile", "Setup mobile target (default platform)"),
-        ("jac setup mobile --platform ios", "Setup iOS scaffold only"),
-        ("jac setup mobile --platform all", "Setup both Android and iOS (macOS)")
+        ("jac setup mobile", "Setup mobile target (Android)"),
+        ("jac setup mobile --platform android", "Setup Android scaffold"),
     ],
     group="project",
     source="jac-client"
@@ -379,17 +362,19 @@ def _handle_build_target(ctx: HookContext) -> None {
     import from pathlib { Path }
     import from jaclang.project.config { get_config }
 
+    import sys;
     target_name = ctx.get_arg("client", "web");
     platform = ctx.get_arg("platform", None);
-    build_type = ctx.get_arg("build_type", "production");
     non_interactive = ctx.get_arg("non_interactive", False);
 
-    # For mobile builds, prompt for platform and build_type if not provided
+    # For mobile builds, prompt for platform if not provided
     if target_name == "mobile" and platform is None {
-        # In non-interactive mode, fail if required arguments are missing
-        if non_interactive {
-            console.error("Error: --platform (-p) is required in non-interactive mode");
-            console.print("  Use: --platform android|ios|all", style="muted");
+        # Fail in non-interactive mode or when stdin is not a tty
+        if non_interactive or not sys.stdin.isatty() {
+            console.error(
+                "Error: --platform (-p) is required (only 'android' is implemented)"
+            );
+            console.print("  Use: --platform android", style="muted");
             ctx.set_data("cancel_execution", True);
             ctx.set_data("cancel_return_code", 1);
             return;
@@ -399,48 +384,35 @@ def _handle_build_target(ctx: HookContext) -> None {
         console.print("  Platform options:", style="muted");
         console.print("    • android  - Build for Android devices", style="muted");
         console.print(
-            "    • ios      - Build for iOS devices (requires Mac)", style="muted"
+            "    • ios      - Not yet implemented (coming soon)", style="muted"
         );
-        console.print("    • all      - Build for both platforms", style="muted");
 
         platform_choice = input(
-            "\n  Select platform [android/ios/all] (default: android): "
+            "\n  Select platform [android] (default: android): "
         ).strip().lower();
-        if platform_choice == "" {
+        if platform_choice == "" or platform_choice == "android" {
             platform = "android";
-        } elif platform_choice in ["android", "ios", "all"] {
-            platform = platform_choice;
         } else {
-            console.error(f"Invalid platform: {platform_choice}");
+            console.error(
+                f"Platform '{platform_choice}' is not yet implemented. Use 'android'."
+            );
             ctx.set_data("cancel_execution", True);
             ctx.set_data("cancel_return_code", 1);
             return;
         }
+    }
 
-        console.print("\n  Build profile options:", style="muted");
-        console.print(
-            "    • development - Dev build with debugging enabled", style="muted"
+    # Fail fast for unimplemented platforms
+    if target_name == "mobile" and platform in ["ios", "all"] {
+        console.error(
+            f"Platform '{platform}' is not yet implemented. Only 'android' is supported."
         );
         console.print(
-            "    • preview     - Preview build for internal testing", style="muted"
+            "  iOS support is planned. Use --platform android for now.", style="muted"
         );
-        console.print(
-            "    • production  - Production build for app stores", style="muted"
-        );
-
-        build_choice = input(
-            "\n  Select build profile [development/preview/production] (default: production): "
-        ).strip().lower();
-        if build_choice == "" {
-            build_type = "production";
-        } elif build_choice in ["development", "preview", "production"] {
-            build_type = build_choice;
-        } else {
-            console.error(f"Invalid build profile: {build_choice}");
-            ctx.set_data("cancel_execution", True);
-            ctx.set_data("cancel_return_code", 1);
-            return;
-        }
+        ctx.set_data("cancel_execution", True);
+        ctx.set_data("cancel_return_code", 1);
+        return;
     }
 
     # Get config and project_dir first (needed for factory)
@@ -499,7 +471,7 @@ def _handle_build_target(ctx: HookContext) -> None {
         }
 
         # Polymorphic call - each target handles its own build logic
-        bundle_path = target.build(entry_path, project_dir, platform, build_type);
+        bundle_path = target.build(entry_path, project_dir, platform);
 
         console.success(f"Build complete: {bundle_path}");
         ctx.set_data("cancel_execution", True);
@@ -740,22 +712,6 @@ def _handle_setup_target(ctx: HookContext) -> None {
                 );
                 console.print(
                     "This may indicate the setup function failed silently.",
-                    style="muted"
-                );
-                ctx.set_data("cancel_execution", True);
-                ctx.set_data("cancel_return_code", 1);
-                return;
-            }
-        }
-        if target_name == "mobile" {
-            android_dir = project_dir / "android";
-            ios_dir = project_dir / "ios";
-            if not android_dir.exists() and not ios_dir.exists() {
-                console.error(
-                    "Setup completed but neither android/ nor ios/ directory was found."
-                );
-                console.print(
-                    "This may indicate mobile setup did not complete successfully.",
                     style="muted"
                 );
                 ctx.set_data("cancel_execution", True);

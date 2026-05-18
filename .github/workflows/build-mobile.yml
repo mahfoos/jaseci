@@ -3,9 +3,7 @@ name: Build Mobile Apps
 
 
 on:
-  push:
-    branches:
-      - feature/mobile-cicd-pipeline
+  pull_request:
     paths:
       - '.github/workflows/build-mobile.yml'
       - 'jac-client/**'
@@ -114,7 +112,7 @@ jobs:
         working-directory: ${{ env.APP_PATH }}
         run: |
           # Bundle is prepared in .jac/mobile/ with node_modules installed.
-          jac build --client mobile -p android -b preview
+          jac build --client mobile -p android
 
       - name: Verify build artifacts
         working-directory: ${{ env.APP_PATH }}/.jac/mobile

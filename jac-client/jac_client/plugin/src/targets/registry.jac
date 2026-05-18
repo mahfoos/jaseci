@@ -55,8 +55,7 @@ class ClientTarget {
         self: ClientTarget,
         entry_file: Path,
         project_dir: Path,
-        platform: Optional[str] = None,
-        build_type: str = "production"
+        platform: Optional[str] = None
     ) -> Path abs;
 
     """Start dev server for the target. Matches core `jac start --dev`: `port` is the Vite
