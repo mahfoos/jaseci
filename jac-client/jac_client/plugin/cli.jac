@@ -108,6 +108,7 @@ priority replacement by the registry.
         ("jac setup desktop", "Setup desktop target (Tauri)"),
         ("jac setup mobile", "Setup mobile target (Android)"),
         ("jac setup mobile --platform android", "Setup Android scaffold"),
+
     ],
     group="project",
     source="jac-client"

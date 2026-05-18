@@ -20,9 +20,7 @@ obj MobileTarget(WebTarget) {
 
     """Build mobile app - build web bundle first, then wrap with React Native."""
     override def build(
-        entry_file: Path,
-        project_dir: Path,
-        platform: Optional[str] = None
+        entry_file: Path, project_dir: Path, platform: Optional[str] = None
     ) -> Path;
 
     """Start mobile dev server - start web dev server and launch Expo dev."""

@@ -143,9 +143,7 @@ impl MobileTarget.setup(project_dir: Path) -> None {
         style="muted"
     );
     console.print("\nNext steps:", style="bold");
-    console.print(
-        "  jac build main.jac --client mobile -p android", style="muted"
-    );
+    console.print("  jac build main.jac --client mobile -p android", style="muted");
     console.print("  jac start main.jac --client mobile --dev", style="muted");
 }
 
@@ -158,9 +156,7 @@ The native APK/IPA build (Gradle / Xcode) is intentionally not run here.
 Drive it from CI or a local script; see .github/JAC_MOBILE.md.
 """
 impl MobileTarget.build(
-    entry_file: Path,
-    project_dir: Path,
-    platform: Optional[str] = None
+    entry_file: Path, project_dir: Path, platform: Optional[str] = None
 ) -> Path {
     console.print("\n📱 Building mobile app (React Native)", style="bold");
 
@@ -257,9 +253,7 @@ impl MobileTarget.dev(
         try {
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM);
             proc.wait(timeout=5);
-        } except ProcessLookupError {
-            pass;
-        } except Exception {
+        } except ProcessLookupError { } except Exception {
             try {
                 proc.kill();
             } except Exception { }
@@ -286,8 +280,7 @@ impl MobileTarget.dev(
 
     try {
         expo_process = subprocess.Popen(
-            ["npx", "expo", "start"], cwd=str(mobile_build_dir),
-            start_new_session=True
+            ["npx", "expo", "start"], cwd=str(mobile_build_dir), start_new_session=True
         );
         console.success("Expo dev server started!");
         console.print(
@@ -367,9 +360,7 @@ impl MobileTarget.start(
         try {
             os.killpg(os.getpgid(proc.pid), signal.SIGTERM);
             proc.wait(timeout=5);
-        } except ProcessLookupError {
-            pass;
-        } except Exception {
+        } except ProcessLookupError { } except Exception {
             try {
                 proc.kill();
             } except Exception { }
@@ -399,7 +390,8 @@ impl MobileTarget.start(
 
     try {
         expo_process = subprocess.Popen(
-            ["npx", "expo", "start", "--no-dev", "--minify"], cwd=str(mobile_build_dir),
+            ["npx", "expo", "start", "--no-dev", "--minify"],
+            cwd=str(mobile_build_dir),
             start_new_session=True
         );
         console.success("Expo started in bundle mode!");

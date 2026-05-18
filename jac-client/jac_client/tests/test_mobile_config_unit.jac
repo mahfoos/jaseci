@@ -52,7 +52,6 @@ test "get_app_json_config produces valid expo config structure" {
     with tempfile.TemporaryDirectory() as tmp {
         project_dir = Path(tmp);
         (project_dir / "jac.toml").write_text(_MINIMAL_JAC_TOML);
-
         old_cwd = os.getcwd();
         try {
             os.chdir(str(project_dir));
@@ -61,17 +60,19 @@ test "get_app_json_config produces valid expo config structure" {
         } finally {
             os.chdir(old_cwd);
         }
-
         assert "expo" in app_json , "app_json must have 'expo' key";
         expo = app_json["expo"];
-
-        assert expo.get("name") == "Test App" , f"Expected 'Test App', got {expo.get('name')}";
-        assert expo.get("slug") == "test-app" , f"Expected 'test-app', got {expo.get('slug')}";
-        assert expo.get("version") == "1.2.3" , f"Expected '1.2.3', got {expo.get('version')}";
-
+        assert expo.get("name") == "Test App" , f"Expected 'Test App', got {expo.get(
+            'name'
+        )}";
+        assert expo.get("slug") == "test-app" , f"Expected 'test-app', got {expo.get(
+            'slug'
+        )}";
+        assert expo.get("version") == "1.2.3" , f"Expected '1.2.3', got {expo.get(
+            'version'
+        )}";
         assert expo.get("ios", {}).get("bundleIdentifier") == "com.example.testapp";
         assert expo.get("android", {}).get("package") == "com.example.testapp";
-
         plugins = expo.get("plugins", []);
         assert "expo-router" in plugins , "expo-router must be in plugins";
         assert "expo-dev-client" in plugins , "expo-dev-client must be in plugins";
@@ -114,12 +115,7 @@ test "is_valid_bundle_id accepts well-formed identifiers" {
 }
 
 test "is_valid_bundle_id rejects malformed identifiers" {
-    invalid_ids = [
-        "singlepart",
-        "com.example.my-app",
-        "com.example.123app",
-        ""
-    ];
+    invalid_ids = ["singlepart", "com.example.my-app", "com.example.123app", ""];
     for bid in invalid_ids {
         assert not _is_valid_bundle_id(bid) , f"Should be invalid: {bid}";
     }
@@ -137,7 +133,6 @@ test "_resolve_production_api_url env var wins over toml" {
     with tempfile.TemporaryDirectory() as tmp {
         project_dir = Path(tmp);
         (project_dir / "jac.toml").write_text(_MINIMAL_JAC_TOML);
-
         saved = os.environ.get("JAC_MOBILE_API_URL");
         try {
             os.environ["JAC_MOBILE_API_URL"] = "https://env.example.com";
@@ -166,7 +161,6 @@ test "_resolve_production_api_url toml wins when env not set" {
     with tempfile.TemporaryDirectory() as tmp {
         project_dir = Path(tmp);
         (project_dir / "jac.toml").write_text(_MINIMAL_JAC_TOML);
-
         saved = os.environ.pop("JAC_MOBILE_API_URL", None);
         old_cwd = os.getcwd();
         try {
@@ -207,7 +201,6 @@ api_url = ""
     with tempfile.TemporaryDirectory() as tmp {
         project_dir = Path(tmp);
         (project_dir / "jac.toml").write_text(toml_empty_api);
-
         saved = os.environ.pop("JAC_MOBILE_API_URL", None);
         old_cwd = os.getcwd();
         try {
