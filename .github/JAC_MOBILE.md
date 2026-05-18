@@ -24,7 +24,7 @@ builds APKs on a GitHub Actions runner - no Expo Application Services
 | Build platform | GitHub Actions `ubuntu-latest` for Android, `macos-latest` for iOS (pending) |
 | Signing | Real keystore from secrets if present, else auto-generated throwaway keystore |
 | Distribution today | Downloadable APK artifact from workflow run |
-| iOS status | Not implemented yet - see [iOS section](#ios--what-remains-to-be-set-up) |
+| iOS status | Not implemented yet - see [iOS section](#ios---what-remains-to-be-set-up) |
 
 ---
 
