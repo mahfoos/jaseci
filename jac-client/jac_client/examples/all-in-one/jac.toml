@@ -74,63 +74,6 @@ typescript = "^5.3.3"
 Cross-Origin-Opener-Policy = "same-origin"
 Cross-Origin-Embedder-Policy = "require-corp"
 
-# Mobile-specific headers (for WebView compatibility)
-# WHY each relaxation is needed:
-# - COOP=unsafe-none: React Native WebView runs in a same-process context; strict
-#   same-origin COOP causes the WebView to lose its JS handle and crash navigation.
-# - COEP=unsafe-none: The web bundle loads JS via a blob URL injected by the mobile
-#   app. Blob URLs are cross-origin to the `http://localhost/` base URL that the
-#   WebView declares, so require-corp would block the entire app from loading.
-# - Access-Control-Allow-*: The Jac backend (port 9000) is on a different origin
-#   from the WebView content; without CORS headers every API call fails with a
-#   network error on the device.
-# Tighter alternatives (credentialless COEP, blob URL workaround) require
-# significant React Native WebView changes and are tracked as a follow-up task.
-[environments.mobile.response.headers]
-Cross-Origin-Opener-Policy = "unsafe-none"
-Cross-Origin-Embedder-Policy = "unsafe-none"
-Access-Control-Allow-Origin = "*"
-Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-Access-Control-Allow-Headers = "Content-Type, Authorization"
-
-# Mobile target configuration (React Native Expo)
-[mobile]
-name = "all-in-one"
-bundle_id = "com.jaseci.allinone"
-version = "1.0.0"
-display_name = "All In One"
-slug = "all-in-one"
-scheme = "allinone"
-
-[mobile.platforms]
-ios = true
-android = true
-
-[mobile.features]
-use_sidecar = false
-api_url = ""
-
-# Expo app configuration (generates mobile/app.json)
-[mobile.expo]
-orientation = "portrait"
-userInterfaceStyle = "light"
-icon = "./assets/icon.png"
-
-[mobile.expo.splash]
-image = "./assets/splash.png"
-resizeMode = "contain"
-backgroundColor = "#ffffff"
-
-[mobile.expo.ios]
-supportsTablet = true
-
-[mobile.expo.android.adaptiveIcon]
-foregroundImage = "./assets/adaptive-icon.png"
-backgroundColor = "#ffffff"
-
-[mobile.expo.web]
-favicon = "./assets/favicon.png"
-
 [plugins.client.pwa]
 theme_color = "#000000"
 background_color = "#ffffff"
