@@ -3,6 +3,11 @@ name: Build Mobile Apps
 
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-mobile.yml'
+      - 'jac-client/**'
+
   push:
     branches:
       - feature/mobile-cicd-pipeline
@@ -15,7 +20,6 @@ on:
       app_path:
         description: 'Path to the Jac project where jac setup mobile is called (must contain jac.toml)'
         required: false
-        default: 'jac-client/jac_client/examples/all-in-one'
       api_url:
         description: 'Backend API URL to bake into the APK (overrides [mobile.features].api_url from jac.toml). Leave blank to use the TOML value.'
         required: false
