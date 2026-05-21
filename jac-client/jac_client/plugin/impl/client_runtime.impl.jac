@@ -1042,29 +1042,29 @@ impl __jacReportError(
     source: str = "",
     componentStack: str = ""
 ) -> None {
-    try {
-        baseUrl = __getApiBaseUrl();
-        fetch(
-            f"{baseUrl}/cl/__error__",
-            {
-                "method": "POST",
-                "headers": {"Content-Type": "application/json"},
-                "body": JSON.stringify(
-                    {
-                        "message": message,
-                        "stack": stack,
-                        "url": url or window.location.href,
-                        "source": source,
-                        "componentStack": componentStack,
-                        "timestamp": Reflect.construct(Date, []).toISOString()
-                    }
-                )
-            }
-        );
-    } except Exception {
-    # Intentionally silent - error reporting must never throw, as that
-    # could cause infinite loops or mask the original error.
-    }
+    # Silence the fetch Promise rejection at the Promise level so that
+    # unhandled-rejection handlers are never triggered (which would cause
+    # an infinite reporting loop when the backend is unreachable).
+    baseUrl = __getApiBaseUrl();
+    fetch(
+        f"{baseUrl}/cl/__error__",
+        {
+            "method": "POST",
+            "headers": {"Content-Type": "application/json"},
+            "body": JSON.stringify(
+                {
+                    "message": message,
+                    "stack": stack,
+                    "url": url or window.location.href,
+                    "source": source,
+                    "componentStack": componentStack,
+                    "timestamp": Reflect.construct(Date, []).toISOString()
+                }
+            )
+        }
+    ).catch(
+        lambda e: any { None; }
+    );
 }
 
 """onError prop for JacClientErrorBoundary. The FallbackComponent React passes

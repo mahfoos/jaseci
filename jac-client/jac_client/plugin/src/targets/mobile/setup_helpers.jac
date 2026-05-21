@@ -336,7 +336,7 @@ const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover" />
     <title>Jac Mobile App</title>
     <style>${css}</style>
 </head>
@@ -345,14 +345,15 @@ const html = `<!DOCTYPE html>
     <script id="__jac_init__" type="application/json">
     ${jacInitConfig}
     </script>
-    <!-- Backend API URL placeholder - replaced at runtime by the mobile app -->
+    <!-- Backend API URL - replaced at runtime by the mobile app (must match globalThis.__JAC_API_BASE_URL__ read by client runtime) -->
     <script>
-        window.JAC_BACKEND_URL = '%%__JAC_BACKEND_URL__%%';
+        window.__JAC_API_BASE_URL__ = '%%__JAC_BACKEND_URL__%%';
     </script>
     <!-- Jac client bundle loaded via blob URL to satisfy CSP -->
     <script>
     (function() {
-        const jsCode = atob('${Buffer.from(js).toString('base64')}');
+        const jsBytes = Uint8Array.from(atob('${Buffer.from(js).toString('base64')}'), c => c.charCodeAt(0));
+        const jsCode = new TextDecoder('utf-8').decode(jsBytes);
         const blob = new Blob([jsCode], { type: 'text/javascript' });
         const url = URL.createObjectURL(blob);
         const script = document.createElement('script');
