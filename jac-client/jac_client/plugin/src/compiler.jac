@@ -37,7 +37,7 @@ class ViteCompiler {
             'useParams',
             'AuthGuard'
         ];
-        COMPOUND_EXTENSIONS = ['.cl.jac', '.impl.jac', '.test.jac'];
+        COMPOUND_EXTENSIONS = ['.native.cl.jac', '.cl.jac', '.impl.jac', '.test.jac'];
     }
 
     def init(

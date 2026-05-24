@@ -54,7 +54,9 @@ glob _VIEW_TAGS = [
          "em",
          "small"
      ],
-     _UNMAPPED_WARNED = {};
+     _UNMAPPED_WARNED = {},
+     _JAC_NATIVE_OUTLET_CONTEXT = React.createContext(None),
+     _JAC_NATIVE_STACK = jacCreateNativeStackNavigator();
 
 impl __jacNativeCreate(tag: any, props: dict = {}, children: any = []) -> JsxElement {
     if tag == None {
@@ -202,39 +204,427 @@ def _makeNativeLink(props: dict, children: list) -> JsxElement {
     return React.createElement.apply(React, args);
 }
 
-impl __nativeRouterStub(props: dict = {}) -> JsxElement {
-    raise Exception(
-        "Router/Routes/Route/Link/Navigate/Outlet are Phase 3 features for "
-        "the react-native target. See REACT_NATIVE_ARCHITECTURE.md (Phase 3)."
+def _toChildrenArray(children: any) -> list {
+    if children == None or children == undefined {
+        return [];
+    }
+    if Array.isArray(children) {
+        return children;
+    }
+    return [children];
+}
+
+def _normalizeRoutePath(path: str) -> str {
+    text = str(path or "").strip();
+    if text == "" {
+        return "/";
+    }
+    if not text.startswith("/") {
+        text = "/" + text;
+    }
+    if len(text) > 1 and text.endswith("/") {
+        text = text.rstrip("/");
+    }
+    return text;
+}
+
+def _joinRoutePath(parent_path: str, child_path: str) -> str {
+    child = str(child_path or "");
+    if child == "" {
+        return _normalizeRoutePath(parent_path);
+    }
+    if child.startswith("/") {
+        return _normalizeRoutePath(child);
+    }
+    base = _normalizeRoutePath(parent_path);
+    if base == "/" {
+        return _normalizeRoutePath("/" + child);
+    }
+    return _normalizeRoutePath(base + "/" + child);
+}
+
+def _splitRouteParts(path: str) -> list[str] {
+    text = _normalizeRoutePath(path);
+    if text == "/" {
+        return [];
+    }
+    parts = [];
+    for part in text.split("/") {
+        if part != "" {
+            parts.append(part);
+        }
+    }
+    return parts;
+}
+
+def _buildRouteName(path: str, ordinal: int) -> str {
+    normalized = _normalizeRoutePath(path);
+    if normalized == "/" {
+        return "root";
+    }
+    parts = _splitRouteParts(normalized);
+    safe_parts = [];
+    for part in parts {
+        safe = part.replace(":", "$").replace("-", "_");
+        safe_parts.append(safe);
+    }
+    return "_".join(safe_parts + [str(ordinal)]);
+}
+
+def _cacheNativeRoutes(route_defs: list) {
+    slim = [];
+    for route in route_defs {
+        slim.append({"name": route["name"], "path": route["path"]});
+    }
+    globalThis.__jacNativeRouteDefs__ = slim;
+}
+
+def _getNativeRoutes -> list {
+    routes = globalThis.__jacNativeRouteDefs__;
+    if routes and Array.isArray(routes) {
+        return routes;
+    }
+    return [];
+}
+
+def _matchRoutePattern(pattern_path: str, actual_path: str) -> (dict | None) {
+    pattern_parts = _splitRouteParts(pattern_path);
+    actual_parts = _splitRouteParts(actual_path);
+    if len(pattern_parts) != len(actual_parts) {
+        return None;
+    }
+    params = {};
+    for idx in range(len(pattern_parts)) {
+        pattern_part = pattern_parts[idx];
+        actual_part = actual_parts[idx];
+        if pattern_part.startswith(":") {
+            key = pattern_part[1:];
+            params[key] = decodeURIComponent(actual_part);
+        } elif pattern_part != actual_part {
+            return None;
+        }
+    }
+    return params;
+}
+
+def _lookupRouteByPath(path: str) -> (dict | None) {
+    normalized = _normalizeRoutePath(path);
+    for route in _getNativeRoutes() {
+        if route["path"] == normalized {
+            return {"name": route["name"], "path": route["path"], "params": {}};
+        }
+    }
+    for route in _getNativeRoutes() {
+        params = _matchRoutePattern(route["path"], normalized);
+        if params is not None {
+            return {"name": route["name"], "path": route["path"], "params": params};
+        }
+    }
+    return None;
+}
+
+def _lookupRouteByName(name: str) -> (dict | None) {
+    for route in _getNativeRoutes() {
+        if route["name"] == name {
+            return route;
+        }
+    }
+    return None;
+}
+
+def _hydratePath(pattern_path: str, params: any) -> str {
+    parts = _splitRouteParts(pattern_path);
+    hydrated = [];
+    for part in parts {
+        if part.startswith(":") {
+            key = part[1:];
+            value = params[key] if params and params[key] != None else "";
+            hydrated.append(encodeURIComponent(str(value)));
+        } else {
+            hydrated.append(part);
+        }
+    }
+    return _normalizeRoutePath("/" + "/".join(hydrated));
+}
+
+def _stripMetaParams(params: any) -> dict {
+    result = {};
+    if not params {
+        return result;
+    }
+    for key in Object.keys(params) {
+        if key.startswith("__jac") {
+            continue;
+        }
+        result[key] = params[key];
+    }
+    return result;
+}
+
+def _performNavigation(nav: any, target: any, options: dict = {}) -> None {
+    if nav == None {
+        console.warn("[jac-native-runtime] navigation is unavailable.");
+        return;
+    }
+    if typeof(target) == "number" {
+        if target < 0 and nav.goBack {
+            nav.goBack();
+        }
+        return;
+    }
+    to = str(target or "/");
+    if to.startswith("http://") or to.startswith("https://") {
+        RNLinking.openURL(to).catch(
+            lambda e: any { console.warn("RNLinking.openURL failed", e); }
+        );
+        return;
+    }
+    normalized = to;
+    query = "";
+    fragment = "";
+    hash_idx = normalized.indexOf("#");
+    if hash_idx >= 0 {
+        fragment = normalized[hash_idx + 1:];
+        normalized = normalized[:hash_idx];
+    }
+    q_idx = normalized.indexOf("?");
+    if q_idx >= 0 {
+        query = normalized[q_idx + 1:];
+        normalized = normalized[:q_idx];
+    }
+    route_match = _lookupRouteByPath(normalized);
+    if route_match is None {
+        console.warn(
+            f"[jac-native-runtime] No native route matched '{normalized}'. "
+            "Define it with <Route path=...>."
+        );
+        return;
+    }
+    params = Object.assign({}, route_match["params"] or {});
+    if query != "" {
+        params["__jacSearch"] = "?" + query;
+    }
+    if fragment != "" {
+        params["__jacHash"] = "#" + fragment;
+    }
+    if options and options["state"] != None {
+        params["__jacState"] = options["state"];
+    }
+    if options and options["replace"] {
+        nav.dispatch(
+            JacCommonActions.reset(
+                {
+                    "index": 0,
+                    "routes": [{"name": route_match["name"], "params": params}]
+                }
+            )
+        );
+        return;
+    }
+    nav.navigate(route_match["name"], params);
+}
+
+def _collectNativeRoutes(
+    children: any, parent_path: str, wrappers: list, out_routes: list
+) {
+    for child in _toChildrenArray(children) {
+        if not React.isValidElement(child) {
+            continue;
+        }
+        if child.type != __nativeRoute {
+            continue;
+        }
+        props = child.props or {};
+        route_path = str(props.path) if props.path else "";
+        route_element = props.element;
+        full_path = _joinRoutePath(parent_path, route_path);
+        if route_path != "" and route_element != None {
+            out_routes.append(
+                {
+                    "name": _buildRouteName(full_path, len(out_routes)),
+                    "path": full_path,
+                    "element": route_element,
+                    "wrappers": wrappers
+                }
+            );
+        }
+        next_wrappers = wrappers;
+        if route_element != None and props.children {
+            next_wrappers = wrappers + [route_element];
+        } elif route_element != None and route_path == "" {
+            next_wrappers = wrappers + [route_element];
+        }
+        next_parent = full_path if route_path != "" else parent_path;
+        if props.children {
+            _collectNativeRoutes(
+                props.children, next_parent, next_wrappers, out_routes
+            );
+        }
+    }
+}
+
+def _makeNativeRouteScreen(route: dict) -> any {
+    wrappers = route["wrappers"] if route["wrappers"] else [];
+    element = route["element"]
+        if route["element"]
+        else React.createElement(RNView, None);
+    return lambda -> JsxElement {
+        content = element;
+        idx = len(wrappers) - 1;
+        while idx >= 0 {
+            wrapper = wrappers[idx];
+            content = React.createElement(
+                _JAC_NATIVE_OUTLET_CONTEXT.Provider, {"value": content}, wrapper
+            );
+            idx -= 1;
+        }
+        return content;
+    };
+}
+
+impl __nativeRouter(props: dict = {}) -> JsxElement {
+    nav_ref = React.useRef(None);
+    globalThis.__jacNativeNavigationRef__ = nav_ref;
+    return React.createElement(
+        JacNavigationContainer, {"ref": nav_ref}, props.children
     );
+}
+
+impl __nativeRoutes(props: dict = {}) -> JsxElement {
+    routes = [];
+    _collectNativeRoutes(props.children, "/", [], routes);
+    _cacheNativeRoutes(routes);
+    if len(routes) == 0 {
+        return React.createElement(
+            RNView,
+            {"style": {"padding": 16}},
+            React.createElement(
+                RNText,
+                {"style": {"color": "#dc2626"}},
+                "No native routes found. Add <Route path=... element=.../>."
+            )
+        );
+    }
+    screens = [];
+    for route in routes {
+        screens.append(
+            React.createElement(
+                _JAC_NATIVE_STACK.Screen,
+                {
+                    "key": route["name"],
+                    "name": route["name"],
+                    "component": _makeNativeRouteScreen(route)
+                }
+            )
+        );
+    }
+    args = [_JAC_NATIVE_STACK.Navigator, {"initialRouteName": routes[0]["name"]}];
+    for screen in screens {
+        args.append(screen);
+    }
+    return React.createElement.apply(React, args);
+}
+
+impl __nativeRoute(props: dict = {}) -> JsxElement {
+    return None;
+}
+
+impl __nativeLink(props: dict = {}) -> JsxElement {
+    to = props.to or (props.href or "/");
+    rest = Object.assign({}, props);
+    if rest["to"] {
+        Reflect.deleteProperty(rest, "to");
+    }
+    if rest["href"] {
+        Reflect.deleteProperty(rest, "href");
+    }
+    if rest["replace"] {
+        Reflect.deleteProperty(rest, "replace");
+    }
+    user_press = rest["onPress"] if rest["onPress"] else None;
+    nav_fn = useNavigate();
+    rest["onPress"] = lambda {
+        if user_press {
+            user_press();
+        }
+        nav_fn(to, {"replace": props.replace == True});
+    };
+    children = _toChildrenArray(props.children or to);
+    label = React.createElement.apply(React, _prepend_args(RNText, None, children));
+    return React.createElement(RNPressable, rest, label);
+}
+
+impl __nativeNavigate(props: dict = {}) -> JsxElement {
+    target = props.to if props and props.to else "/";
+    should_replace = props.replace == True if props else False;
+    nav_fn = useNavigate();
+    reactUseEffect(
+        lambda { nav_fn(target, {"replace": should_replace, "state": props.state}); },
+        [target, should_replace]
+    );
+    return None;
+}
+
+impl __nativeOutlet(props: dict = {}) -> JsxElement {
+    return React.useContext(_JAC_NATIVE_OUTLET_CONTEXT);
 }
 
 impl useRouter -> dict {
-    raise Exception(
-        "useRouter is a Phase 3 feature for react-native — see "
-        "REACT_NATIVE_ARCHITECTURE.md (Phase 3)."
-    );
+    nav_fn = useNavigate();
+    location = useLocation();
+    params = useParams();
+    return {
+        "navigate": nav_fn,
+        "location": location,
+        "params": params,
+        "pathname": location.pathname,
+        "search": location.search,
+        "hash": location.hash
+    };
 }
 
 impl useNavigate -> any {
-    raise Exception(
-        "useNavigate is Phase 3 for react-native — see REACT_NATIVE_ARCHITECTURE.md."
-    );
+    nav = jacUseNavigation();
+    def _navigate(target: any, options: (dict | None) = None) {
+        _performNavigation(nav, target, options or {});
+    }
+    return _navigate;
 }
 
 impl useLocation -> dict {
-    return {"pathname": "/", "search": "", "hash": "", "state": None};
+    route = jacUseRoute();
+    pathname = "/";
+    search = "";
+    hash = "";
+    state = None;
+    params = route.params if route and route.params else {};
+    route_name = route.name if route and route.name else "";
+    route_def = _lookupRouteByName(route_name);
+    if route_def {
+        pathname = _hydratePath(route_def["path"], params);
+    }
+    if params and params["__jacSearch"] {
+        search = str(params["__jacSearch"]);
+    }
+    if params and params["__jacHash"] {
+        hash = str(params["__jacHash"]);
+    }
+    if params and params["__jacState"] != None {
+        state = params["__jacState"];
+    }
+    return {"pathname": pathname, "search": search, "hash": hash, "state": state};
 }
 
 impl useParams -> dict {
-    return {};
+    route = jacUseRoute();
+    params = route.params if route and route.params else {};
+    return _stripMetaParams(params);
 }
 
 impl navigate(path: str) -> None {
-    console.warn(
-        f"[jac-native-runtime] navigate({path!r}) is a no-op until React "
-        "Navigation lands in Phase 3."
-    );
+    nav_ref = globalThis.__jacNativeNavigationRef__;
+    nav = nav_ref.current if nav_ref and nav_ref.current else None;
+    _performNavigation(nav, path, {});
 }
 
 impl __getApiBaseUrl -> str {
@@ -326,9 +716,9 @@ impl __primeNativeTokenCache -> None {
 
 impl AuthGuard(redirect: str = "/login") -> JsxElement {
     if jacIsLoggedIn() {
-        return None;
+        return React.createElement(__nativeOutlet, None);
     }
-    return React.createElement(RNText, None, "Please log in (AuthGuard placeholder)");
+    return React.createElement(__nativeNavigate, {"to": redirect, "replace": True});
 }
 
 impl ErrorFallback(error: str, resetErrorBoundary: any) -> JsxElement {
@@ -407,6 +797,7 @@ impl errorOverlay(filePath: str, errors: str) -> JsxElement {
 impl JacForm(props: dict) -> JsxElement {
     schema = props.schema;
     onSubmit = props.onSubmit;
+    validate_mode = props.validateMode || "onTouched";
     submitLabel = props.submitLabel || "Submit";
     field_config = props.field_config || {};
     actualSchema = schema;
@@ -417,15 +808,94 @@ impl JacForm(props: dict) -> JsxElement {
     } except Exception { }
     schemaShape = actualSchema.shape || {};
     fieldNames = Object.keys(schemaShape);
-    form = useJacForm("onTouched", schema);
+    form = useJacForm(validate_mode, schema);
+    errors = form.formState.errors;
     isSubmitting = form.formState.isSubmitting;
     isDirty = form.formState.isDirty;
+    [passwordVisible, setPasswordVisible] = useState({});
+    def _fieldErrorMessage(field_name: str) -> str {
+        err = errors[field_name] if errors and errors[field_name] else None;
+        if not err {
+            return "";
+        }
+        if err.message {
+            return str(err.message);
+        }
+        return "Invalid value";
+    }
     fields = [];
     for fieldName in fieldNames {
         config = field_config[fieldName] if field_config[fieldName] else {};
         label = config.label or fieldName;
         placeholder = config.placeholder or "";
+        field_type = str(config.type or "text");
+        if field_type == "text"
+        and ("password" in fieldName.lower() or "pass" in fieldName.lower()) {
+            field_type = "password";
+        }
+        current_value = form.watch(fieldName);
+        message = _fieldErrorMessage(fieldName);
+        is_password = field_type == "password";
+        is_visible = passwordVisible[fieldName] == True if passwordVisible else False;
+        secure = is_password and not is_visible;
         field = form.register(fieldName, {});
+        on_change = lambda text: any { form.setValue(
+            fieldName,
+            text,
+            {"shouldDirty": True, "shouldTouch": True, "shouldValidate": True}
+        ); };
+        input_row = React.createElement(
+            RNTextInput,
+            {
+                "placeholder": placeholder,
+                "value": "" if current_value == None else str(current_value),
+                "onChangeText": on_change,
+                "onBlur": field.onBlur,
+                "secureTextEntry": secure,
+                "style": {
+                    "borderWidth": 1,
+                    "borderColor": "#e5e7eb" if message == "" else "#ef4444",
+                    "padding": 10,
+                    "borderRadius": 6,
+                    "backgroundColor": "#ffffff",
+                    "flex": 1
+                }
+            }
+        );
+        if is_password {
+            toggle = React.createElement(
+                RNPressable,
+                {
+                    "onPress": lambda { setPasswordVisible(
+                        Object.assign({}, passwordVisible, {fieldName: not is_visible})
+                    ); },
+                    "style": {
+                        "marginLeft": 8,
+                        "paddingVertical": 8,
+                        "paddingHorizontal": 10
+                    }
+                },
+                React.createElement(
+                    RNText,
+                    {"style": {"color": "#2563eb", "fontWeight": "600"}},
+                    "Hide" if is_visible else "Show"
+                )
+            );
+            input_row = React.createElement(
+                RNView,
+                {"style": {"flexDirection": "row", "alignItems": "center"}},
+                input_row,
+                toggle
+            );
+        }
+        error_view = None;
+        if message != "" {
+            error_view = React.createElement(
+                RNText,
+                {"style": {"marginTop": 4, "color": "#ef4444", "fontSize": 12}},
+                message
+            );
+        }
         fields.append(
             React.createElement(
                 RNView,
@@ -433,20 +903,8 @@ impl JacForm(props: dict) -> JsxElement {
                 React.createElement(
                     RNText, {"style": {"marginBottom": 4, "color": "#374151"}}, label
                 ),
-                React.createElement(
-                    RNTextInput,
-                    {
-                        "placeholder": placeholder,
-                        "onChangeText": field.onChange,
-                        "onBlur": field.onBlur,
-                        "style": {
-                            "borderWidth": 1,
-                            "borderColor": "#e5e7eb",
-                            "padding": 8,
-                            "borderRadius": 4
-                        }
-                    }
-                )
+                input_row,
+                error_view
             )
         );
     }

@@ -10,6 +10,15 @@ import from 'react-native' {
     Image as RNImage,
     Linking as RNLinking
 }
+import from '@react-navigation/native' {
+    NavigationContainer as JacNavigationContainer,
+    CommonActions as JacCommonActions,
+    useNavigation as jacUseNavigation,
+    useRoute as jacUseRoute
+}
+import from '@react-navigation/native-stack' {
+    createNativeStackNavigator as jacCreateNativeStackNavigator
+}
 import from 'expo-secure-store' { * as SecureStore }
 import from 'expo-constants' { * as ExpoConstants }
 import from 'react-error-boundary' { ErrorBoundary }
@@ -28,16 +37,21 @@ def:pub __jacNativeCreate(
 
 glob:pub useState = reactUseState,
      useEffect = reactUseEffect,
-     Router = __nativeRouterStub,
-     Routes = __nativeRouterStub,
-     Route = __nativeRouterStub,
-     Link = __nativeRouterStub,
-     Navigate = __nativeRouterStub,
-     Outlet = __nativeRouterStub,
+     Router = __nativeRouter,
+     Routes = __nativeRoutes,
+     Route = __nativeRoute,
+     Link = __nativeLink,
+     Navigate = __nativeNavigate,
+     Outlet = __nativeOutlet,
      JacClientErrorBoundary = ErrorBoundary,
      JacSchema = __createJacSchema(z);
 
-def:pub __nativeRouterStub(props: dict = {}) -> JsxElement;
+def:pub __nativeRouter(props: dict = {}) -> JsxElement;
+def:pub __nativeRoutes(props: dict = {}) -> JsxElement;
+def:pub __nativeRoute(props: dict = {}) -> JsxElement;
+def:pub __nativeLink(props: dict = {}) -> JsxElement;
+def:pub __nativeNavigate(props: dict = {}) -> JsxElement;
+def:pub __nativeOutlet(props: dict = {}) -> JsxElement;
 def:pub useRouter -> dict;
 def:pub useNavigate -> any;
 def:pub useLocation -> dict;

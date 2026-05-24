@@ -35,7 +35,7 @@ class JacClientCompiler {
             'useParams',
             'AuthGuard'
         ];
-        COMPOUND_EXTENSIONS = ['.cl.jac', '.impl.jac', '.test.jac'];
+        COMPOUND_EXTENSIONS = ['.native.cl.jac', '.cl.jac', '.impl.jac', '.test.jac'];
     }
 
     def init(
@@ -69,7 +69,8 @@ class JacClientCompiler {
         visited: (set[Path] | None) = None,
         collected_exports: (set[str] | None) = None,
         collected_globals: (dict[(str, Any)] | None) = None,
-        source_root: (Path | None) = None
+        source_root: (Path | None) = None,
+        target_name: str = "web"
     ) -> None;
 
     def _copy_js_file(
@@ -105,6 +106,7 @@ class JacClientCompiler {
         self: JacClientCompiler,
         module: ModuleType,
         module_path: Path,
-        runtime_filename: str = "client_runtime.cl.jac"
+        runtime_filename: str = "client_runtime.cl.jac",
+        target_name: str = "web"
     ) -> tuple[list[str], list[str]];
 }

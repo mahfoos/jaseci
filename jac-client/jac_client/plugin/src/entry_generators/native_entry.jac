@@ -43,9 +43,9 @@ def build_native_entry_script(
 ) -> str {
     lines: list[str] = [
         'import { AppRegistry } from "react-native";',
-        f'import {{ app as App }} from "./{entry_module}.js";',
+        f'import {{ app as JacApp }} from "./{entry_module}.js";',
         '',
-        f'AppRegistry.registerComponent({NATIVE_ROOT_COMPONENT_NAME!r}, () => App);',
+        f'AppRegistry.registerComponent({NATIVE_ROOT_COMPONENT_NAME!r}, () => JacApp);',
         ''
     ];
     return "\n".join(lines);

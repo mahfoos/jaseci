@@ -35,7 +35,8 @@ impl JacClientCompiler.compile(
     self: JacClientCompiler,
     module: ModuleType,
     module_path: Path,
-    runtime_filename: str = "client_runtime.cl.jac"
+    runtime_filename: str = "client_runtime.cl.jac",
+    target_name: str = "web"
 ) -> tuple[list[str], list[str]] {
     (module_js, mod, module_manifest) = self.jac_compiler.compile_module(module_path);
     collected_exports: set[str] = set(
@@ -48,7 +49,8 @@ impl JacClientCompiler.compile(
         module_path,
         visited=visited,
         collected_exports=collected_exports,
-        collected_globals=collected_globals
+        collected_globals=collected_globals,
+        target_name=target_name
     );
     self._has_pages = self._scan_and_compile_pages(
         visited=visited,
@@ -146,7 +148,8 @@ impl JacClientCompiler.compile_dependencies_recursively(
     visited: (set[Path] | None) = None,
     collected_exports: (set[str] | None) = None,
     collected_globals: (dict[(str, Any)] | None) = None,
-    source_root: (Path | None) = None
+    source_root: (Path | None) = None,
+    target_name: str = "web"
 ) -> None {
     if (visited is None) {
         visited = set();
@@ -158,6 +161,18 @@ impl JacClientCompiler.compile_dependencies_recursively(
         collected_globals = {};
     }
     module_path = module_path.resolve();
+    if (
+        target_name == "react-native"
+        and module_path.name.endswith(".cl.jac")
+        and not module_path.name.endswith(".native.cl.jac")
+    ) {
+        native_candidate = module_path.with_name(
+            module_path.name[:-len(".cl.jac")] + ".native.cl.jac"
+        );
+        if native_candidate.exists() {
+            module_path = native_candidate.resolve();
+        }
+    }
     if (module_path in visited) {
         return;
     }
@@ -234,6 +249,18 @@ impl JacClientCompiler.compile_dependencies_recursively(
     }
     for (_name, import_path) in manifest.imports.items() {
         path_obj = Path(import_path).resolve();
+        if (
+            target_name == "react-native"
+            and path_obj.name.endswith(".cl.jac")
+            and not path_obj.name.endswith(".native.cl.jac")
+        ) {
+            native_candidate = path_obj.with_name(
+                path_obj.name[:-len(".cl.jac")] + ".native.cl.jac"
+            );
+            if native_candidate.exists() {
+                path_obj = native_candidate.resolve();
+            }
+        }
         if (path_obj in visited) {
             continue;
         }
@@ -243,7 +270,8 @@ impl JacClientCompiler.compile_dependencies_recursively(
                 visited,
                 collected_exports=collected_exports,
                 collected_globals=collected_globals,
-                source_root=source_root
+                source_root=source_root,
+                target_name=target_name
             );
         } elif (path_obj.suffix == '.js') {
             self._copy_js_file(path_obj, source_root);

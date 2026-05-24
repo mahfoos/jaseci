@@ -188,7 +188,7 @@ test "native entry generator is registered through the runtime registry" {
     assert "AppRegistry" in script;
     assert "registerComponent" in script;
     assert 'from "./main.js"' in script;
-    assert "app as App" in script;
+    assert "app as JacApp" in script;
     # Round-trip equality check: the registered fn must be the same function
     # the module exports, not a stale closure or shim.
     direct = native_entry_mod.build_native_entry_script("main");
@@ -223,6 +223,8 @@ test "native runtime file ships parallel to the web runtime" {
     assert "__jacNativeCreate" in impl_content;
     # Must import from react-native, not react-dom / react-router.
     assert "from 'react-native'" in cl_content;
+    assert "@react-navigation/native" in cl_content;
+    assert "@react-navigation/native-stack" in cl_content;
     assert "expo-secure-store" in cl_content;
     forbidden_imports = [
         "from 'react-dom",
@@ -246,6 +248,11 @@ test "native runtime file ships parallel to the web runtime" {
             f"native runtime impl uses web-only symbol: {needle!r}"
         );
     }
+    # Phase 3: Router surface is implemented via React Navigation; no
+    # placeholder stubs should remain.
+    assert "Phase 3 features for" not in impl_content;
+    assert "__nativeRouterStub" not in cl_content;
+    assert "__nativeRouterStub" not in impl_content;
 }
 
 test "JacClientCompiler accepts runtime_filename to select native runtime" {
@@ -261,11 +268,39 @@ test "JacClientCompiler accepts runtime_filename to select native runtime" {
         "JacClientCompiler must declare runtime_filename parameter"
     );
     assert "runtime_filename" in impl_content;
+    assert "target_name" in src_content;
+    assert "target_name" in impl_content;
+    assert ".native.cl.jac" in src_content;
+    assert ".native.cl.jac" in (_plugin_dir / "src" / "compiler.jac").read_text();
+    assert src_content.index(".native.cl.jac") < src_content.index(".cl.jac") , (
+        "COMPOUND_EXTENSIONS must put .native.cl.jac before .cl.jac so "
+        "Header.native.cl.jac maps to Header.js (not Header.native.js)."
+    );
     assert 'client_runtime.cl.jac' in src_content;
     assert "client_runtime_core.cl.jac" in impl_content , (
         "compile_runtime_utils must bundle client_runtime_core (D9)"
     );
     assert "_bundle_runtime_js" in impl_content;
+}
+
+test "react native compiler selects .native.cl.jac variants when available" {
+    impl_path = _plugin_dir / "src" / "impl" / "jac_client_compiler.impl.jac";
+    impl_content = impl_path.read_text();
+
+    assert "target_name == \"react-native\"" in impl_content;
+    assert "native_candidate" in impl_content;
+    assert ".native.cl.jac" in impl_content;
+    assert "target_name=target_name" in impl_content;
+}
+
+test "react native target compile calls set target_name to react-native" {
+    target_impl = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    dev_src = _plugin_dir / "src" / "targets" / "react_native" / "dev.jac";
+    target_content = target_impl.read_text();
+    dev_content = dev_src.read_text();
+
+    assert "target_name=\"react-native\"" in target_content;
+    assert "target_name=\"react-native\"" in dev_content;
 }
 
 test "react native scaffold writes Expo project files" {
@@ -288,11 +323,17 @@ test "react native scaffold writes Expo project files" {
         assert (rn_dir / "index.ts").exists();
         assert (rn_dir / "app" / "App.tsx").exists();
         metro_content = (rn_dir / "metro.config.js").read_text();
+        pkg_content = (rn_dir / "package.json").read_text();
+        app_content = (rn_dir / "app" / "App.tsx").read_text();
         # Metro must alias @jac/runtime to the compiled runtime so the
         # bundle gets the native variant at resolution time.
         assert "@jac/runtime" in metro_content;
         assert "client_runtime.js" in metro_content;
         assert "watchFolders" in metro_content;
+        assert "@react-navigation/native" in pkg_content;
+        assert "@react-navigation/native-stack" in pkg_content;
+        assert "react-native-screens" in pkg_content;
+        assert "from '../jac-app'" in app_content;
         app_json = (rn_dir / "app.json").read_text();
         # D8: New Architecture + Hermes from day one.
         assert "newArchEnabled" in app_json;

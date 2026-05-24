@@ -97,6 +97,11 @@ def _build_package_json(app_slug: str) -> str {
             "expo-status-bar": "~2.0.0",
             "react": "18.3.1",
             "react-native": REACT_NATIVE_VERSION,
+            "@react-navigation/native": "^7.1.14",
+            "@react-navigation/native-stack": "^7.3.21",
+            "react-native-gesture-handler": "~2.20.2",
+            "react-native-safe-area-context": "5.6.0",
+            "react-native-screens": "~4.4.0",
             "react-error-boundary": "^4.1.2",
             "react-hook-form": "^7.54.0",
             "@hookform/resolvers": "^3.10.0",
@@ -214,7 +219,7 @@ def _build_app_tsx -> str {
         "// @ts-expect-error - Jac runtime has no .d.ts yet\n"
         "} from '@jac/runtime';\n"
         "// @ts-expect-error - Jac compiled bundle has no .d.ts.\n"
-        "import { app as JacApp } from './jac-app';\n"
+        "import { app as JacApp } from '../jac-app';\n"
         "\n"
         "__jacInstallErrorHandlers();\n"
         "\n"

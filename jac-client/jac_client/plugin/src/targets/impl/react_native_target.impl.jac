@@ -165,7 +165,10 @@ impl ReactNativeTarget.build(
         raise RuntimeError(f"Failed to compile client entry module: {entry_file}");
     }
     jac_compiler.compile(
-        mod, entry_file, runtime_filename="client_runtime_native.cl.jac"
+        mod,
+        entry_file,
+        runtime_filename="client_runtime_native.cl.jac",
+        target_name="react-native"
     );
     console.print("  ✔ Jac modules compiled with native runtime", style="success");
 
@@ -285,7 +288,10 @@ impl ReactNativeTarget.dev(
         raise RuntimeError(f"Failed to compile client entry module: {entry_file}");
     }
     jac_compiler.compile(
-        mod, entry_file, runtime_filename="client_runtime_native.cl.jac"
+        mod,
+        entry_file,
+        runtime_filename="client_runtime_native.cl.jac",
+        target_name="react-native"
     );
     console.print("  ✔ Native client modules compiled", style="success");
     lint_unmapped_tags(compiled_dir);

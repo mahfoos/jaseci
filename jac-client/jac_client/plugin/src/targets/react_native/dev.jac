@@ -291,7 +291,10 @@ def rn_hmr_on_jac_changed(
             return;
         }
         compiler.compile(
-            mod2, entry_file, runtime_filename="client_runtime_native.cl.jac"
+            mod2,
+            entry_file,
+            runtime_filename="client_runtime_native.cl.jac",
+            target_name="react-native"
         );
         compiled_dir = compiler.compiled_dir;
         if compiled_dir is not None {
