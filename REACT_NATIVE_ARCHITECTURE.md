@@ -1,7 +1,7 @@
 # React Native Target - Architecture & Planning Record
 
-**Status:** approved - implementation starting (branch `feat/react-native`)
-**Last updated:** 2026-05-23
+**Status:** approved - Phase 1 + Phase 2 landed; Phase 3 next (branch `feat/react-native`)
+**Last updated:** 2026-05-24
 **Owner:** TBD
 
 > **Decision (2026-05-23):** We are implementing the React Native target. Capacitor
@@ -506,7 +506,7 @@ screen, one walker call, one button, one text input.
 
 ---
 
-### Phase 2 - Dev loop with Fast Refresh
+### Phase 2 - Dev loop with Fast Refresh - **LANDED 2026-05-24**
 
 Goal: `jac start --client react-native --dev` round-trips a `.cl.jac` edit to
 the device in < 3 s.
@@ -528,6 +528,69 @@ the device in < 3 s.
 - Edit a `.cl.jac` file → Metro hot-reloads on device within 3 s.
 - Walker calls during dev hit the local `jac start` backend over LAN.
 - iOS sim works too (best-effort; iOS isn't the gate).
+
+**Outcome:**
+
+- New module `jac-client/jac_client/plugin/src/targets/react_native/dev.jac`
+  bundles the Phase 2 helpers: port resolution (`resolve_metro_port`,
+  `assert_rn_port_available`), `adb reverse` for Android
+  (`setup_android_port_reverse`), app.json round-trip injection of the
+  dev API base URL (`inject_dev_api_base_url` / `restore_app_json`,
+  consumed by `__getApiBaseUrl`'s second-tier `Constants.expoConfig`
+  fallback), Jac API backend launcher (`start_backend_server`), watcher
+  guard (`ensure_watchdog`), HMR callback (`rn_hmr_on_jac_changed`), and
+  the `npx expo start` runner (`build_expo_start_argv` /
+  `run_expo_start`).
+- `_RNHmrHandler` declared in `react_native_target.jac` (parallel to
+  `_MobileHmrHandler`) binds the JacClientCompiler + entry context the
+  watchdog thread needs; impl delegates to `rn_hmr_on_jac_changed` so
+  the actual work stays in one place.
+- `ReactNativeTarget.dev` now orchestrates the full flow:
+  resolve host (env override > LAN IPv4 > 127.0.0.1) → assert ports →
+  compile Jac + native runtime → stage `jac-app.js` → regenerate
+  `index.ts` → inject API URL into `app.json` → `adb reverse` → spawn
+  the Jac backend (`jaclang start --no_client`) → start JacFileWatcher
+  → exec `npx expo start --clear` blocking until Ctrl+C → restore
+  `app.json` + tear everything down in `finally`.
+- HMR callback re-runs `JacClientCompiler.compile` with
+  `runtime_filename="client_runtime_native.cl.jac"` on every `.jac`
+  save, re-stages the compiled entry, and re-runs the lint pass. Metro
+  picks up the file change through `watchFolders` (set by the scaffold)
+  and Fast Refreshes the device.
+- `__getApiBaseUrl`'s existing three-tier resolution
+  (build-time global → `Constants.expoConfig.extra.apiBaseUrl` →
+  emulator loopback) means no source code changes were needed in the
+  runtime - dev just rewrites the second tier and restores it on exit.
+
+**Test coverage added** (six new tests in
+`test_react_native_target.jac` - 21 total, all passing):
+
+- `dev` no longer raises NotImplementedError; instead it raises a
+  RuntimeError pointing at `jac setup react-native` when the scaffold
+  is absent (replaces the prior Phase 2 placeholder test).
+- All Phase 2 dev helpers importable; `DEFAULT_METRO_PORT == 8081`
+  and the env knob names match what `__getApiBaseUrl` expects.
+- `resolve_metro_port` honors the env override and falls back to the
+  cli value when unset.
+- `build_expo_start_argv` emits `--port` and toggles `--clear`.
+- `inject_dev_api_base_url` rewrites `expo.extra.apiBaseUrl`, preserves
+  other fields, returns the original raw bytes, and `restore_app_json`
+  round-trips them back byte-for-byte.
+- Missing `app.json` is a graceful no-op (injection returns None,
+  restore is a no-op) - guards against scaffolds users have deleted.
+- Source-level check that `_RNHmrHandler` exists, the `dev` impl
+  invokes `run_expo_start` + `JacFileWatcher`, and the old
+  NotImplementedError body is gone.
+
+**Deferred (still Phase 3 / Phase 4):**
+
+- React Navigation adapter (router exports still stub-throw).
+- `.native.cl.jac` module-resolver suffix.
+- iOS + EAS + release variants.
+- Performance gate: we hit "the lint + recompile + stage round-trip
+  completes" but haven't measured the < 3 s wall-clock target on a
+  representative app yet (needs an internal RN app to dogfood, see
+  Phase 5 gate).
 
 ---
 
@@ -811,6 +874,13 @@ migrate later is much higher.
 contract surface that future targets (terminal, desktop-native, etc.) can also
 implement.
 
+**Status (2026-05-24):** Landed. `client_runtime_core.cl.jac` holds shared
+walker/cache/auth/schema/JSX-dispatch logic; `client_runtime.cl.jac` and
+`client_runtime_native.cl.jac` are platform adapters wired via
+`globalThis.__jac*__` callbacks and `__jacWirePlatformAdapters()`.
+`JacClientCompiler.compile_runtime_utils` stitches core + platform into a
+single `compiled/client_runtime.js` (unchanged `@jac/runtime` alias).
+
 ### D10 - Documented tag map, lint warnings for the rest (2026-05-23)
 
 **Decision:** The supported HTML→RN tag map is a fixed documented subset:
@@ -885,3 +955,69 @@ target trust gets broken.
 - [ ] Manually compile `basic-app` fixture → feed to fresh RN project via Metro
 - [ ] List all HTML tag usages across `jac-client/tests/fixtures/`
 - [ ] Prototype `__jacJsxNative` tag map in isolation
+
+### Phase 1 build-out log (2026-05-24)
+
+**Landed:**
+
+- `client_runtime_native.cl.jac` + impl (self-contained; D9 split deferred
+  per the note in D9 above). Native renderer with the documented HTML→RN
+  tag map (D10), `expo-secure-store` storage adapter (D8), error reporting
+  via `ErrorUtils.setGlobalHandler`, native variants of `ErrorFallback` /
+  `AuthGuard` / `JacForm`, router stubs that throw a clear "Phase 3"
+  message.
+- `JacClientCompiler.compile` and `compile_runtime_utils` accept
+  `runtime_filename` so the RN target can swap in the native runtime
+  without any bundler glue change. Default unchanged for web/PWA/desktop/
+  mobile.
+- `ReactNativeTarget.setup` - scaffolds `mobile-rn/` (D11): `package.json`,
+  `app.json` (`newArchEnabled: true`, `jsEngine: "hermes"` - D8),
+  `metro.config.js` (aliases `@jac/runtime` → compiled native runtime;
+  watches `.jac/client/compiled/`), `babel.config.js`, `tsconfig.json`,
+  user-editable `app/App.tsx`, placeholder `index.ts` + `jac-app.js`.
+  Idempotent via a scaffold marker - re-runs preserve user-edited files.
+- `ReactNativeTarget.build --platform android` - JacClientCompiler with
+  native runtime → lint pass for unmapped HTML tags → stage compiled
+  entry into `mobile-rn/jac-app.js` → regenerate `index.ts` from the
+  native entry generator → `expo prebuild --platform android --no-install`
+  → `./gradlew assembleDebug` → return APK path. iOS still raises
+  NotImplementedError (Phase 4).
+- `ReactNativeTarget.start` - wraps `build` + `adb install -r` +
+  `adb shell monkey ... LAUNCHER 1` to install and launch.
+- Compile-time lint warning surfacing unmapped HTML tags from compiled
+  user code (D10), with a roadmap pointer in the message.
+- Native entry generator (`build_native_entry_script`) - wrapped on every
+  build with `registerRootComponent(App)` from `expo` so the registration
+  is Expo-compatible (bare `AppRegistry.registerComponent` is fragile
+  under Expo Go).
+
+**Test coverage added** (`test_react_native_target.jac` - 15 tests, all
+passing):
+
+- Native runtime file ships parallel to web runtime; no web-only imports
+  leak.
+- `JacClientCompiler` accepts `runtime_filename`.
+- Expo scaffold writes the canonical file set; `metro.config.js` aliases
+  `@jac/runtime`; `app.json` carries `newArchEnabled` + `hermes`.
+- Re-running setup preserves user-edited files (scaffold marker).
+- `lint_unmapped_tags` flags `<marquee>` / `<details>` and ignores
+  supported tags + the runtime's own tag-map literals.
+- `dev` raises `NotImplementedError` with Phase 2 pointer.
+- iOS `build` raises `NotImplementedError` with Phase 4 pointer.
+
+**Smoke-test result:** `jac setup react-native` produces a working Expo
+project (775 npm packages installed); `jac build --client react-native
+--platform android` runs cleanly through Jac compile → native runtime
+generation → expo prebuild → gradle invocation. Local gradle failures
+beyond that point are environment-specific (Java version / SDK
+availability), not pipeline regressions.
+
+**Deferred to follow-up sessions:**
+
+- Phase 2 dev loop (Metro Fast Refresh + JacFileWatcher integration +
+  adb reverse).
+- React Navigation adapter (Phase 3) - current router exports throw.
+- `.native.cl.jac` module resolution (Phase 3).
+- Full native JacForm (radio / select / password toggle) - Phase 1 ships
+  the TextInput + submit Pressable subset.
+- iOS + EAS Build + release variants (Phase 4).
