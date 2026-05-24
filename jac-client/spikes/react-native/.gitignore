@@ -1,0 +1,21 @@
+# Expo / native build outputs — should never be committed.
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+android/
+ios/
+
+# Local environment
+.env
+.env.local
+
+# Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# OS junk
+.DS_Store

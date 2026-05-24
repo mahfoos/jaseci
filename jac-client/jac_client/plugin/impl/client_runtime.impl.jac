@@ -1,4 +1,36 @@
+# R3: `__jacJsx` is now a thin dispatcher. The bundle stays free of any
+# target-specific DOM/RN logic — that lives behind the renderer interface.
+# Compiled JSX output is unchanged: every `__jacJsx(tag, props, children)`
+# call site still hits a single global function with the same arity.
 impl __jacJsx(tag: any, props: dict = {}, children: any = []) -> JsxElement {
+    return __jacGetRenderer().create(tag, props, children);
+}
+
+# Set the active renderer for this bundle. Targets that aren't web call this
+# before any JSX evaluates (i.e. from the entry script, before importing user
+# modules). globalThis is the only ordering-independent slot — module-local
+# state would reset on HMR and lose a non-default renderer.
+impl __jacRegisterRenderer(renderer: any) -> None {
+    globalThis.__jacRenderer__ = renderer;
+}
+
+# Lazy lookup of the active renderer. When nothing has been registered, fall
+# back to the web renderer — matches the existing `__getCacheState` /
+# `__getEndpointEffects` lazy-init pattern in this file and keeps the web
+# path zero-config.
+impl __jacGetRenderer -> any {
+    if not globalThis.__jacRenderer__ {
+        globalThis.__jacRenderer__ = {"create": __jacWebCreate};
+    }
+    return globalThis.__jacRenderer__;
+}
+
+# Web renderer body. Unchanged from the previous `__jacJsx` implementation:
+# Fragment fallback for `tag == None`, child normalization, and the
+# `__jacUnsafeHtml` sentinel that lowers `unsafe_html(...)` to a
+# `<span dangerouslySetInnerHTML>`. Anything DOM-specific must stay here, not
+# in `__jacJsx` — that's the whole point of R3.
+impl __jacWebCreate(tag: any, props: dict = {}, children: any = []) -> JsxElement {
     if tag == None {
         tag = React.Fragment;
     }

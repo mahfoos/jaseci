@@ -21,13 +21,29 @@ changelog = "https://github.com/jaseci-labs/jaseci/blob/main/docs/docs/community
 packages = ["jac_client*"]
 
 [project.include.data]
-"jac_client" = ["templates/**/*", "templates/**/.*"]
+jac_client = ["templates/**/*", "templates/**/.*"]
 
 [dependencies]
 jaclang = ">=0.15.5"
 
+[dependencies.npm]
+react = "^18.2.0"
+react-dom = "^18.2.0"
+react-router-dom = "^6.22.0"
+react-error-boundary = "^5.0.0"
+react-hook-form = "^7.71.0"
+zod = "^4.3.6"
+"@hookform/resolvers" = "^5.2.2"
+
+[dependencies.npm.dev]
+vite = "^6.4.1"
+"@vitejs/plugin-react" = "^4.2.1"
+typescript = "^5.3.3"
+"@types/react" = "^18.2.0"
+"@types/react-dom" = "^18.2.0"
+
 [dev-dependencies]
-"python-dotenv" = "==1.0.1"
+python-dotenv = "==1.0.1"
 pytest = "==8.3.5"
 watchdog = ">=3.0.0"
 

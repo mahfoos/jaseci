@@ -8,6 +8,13 @@ import from jac_client.plugin.src.targets.desktop_target { DesktopTarget }
 import from jac_client.plugin.src.targets.pwa_target { PWATarget }
 import from jac_client.plugin.src.targets.mobile_target { MobileTarget }
 
+# Side-effect import: registers the 'web' entry generator with
+# `jaclang.runtimelib.entry_generators`. Native and other targets will add
+# their own imports here when their generators land.
+import from jac_client.plugin.src.entry_generators.web_entry {
+    build_simple_react_entry_script
+}
+
 # Note: Jac's annex pass should auto-discover .impl.jac files automatically
 # The impl files in impl/ directory should be loaded when the base classes are imported
 """Register all available targets."""

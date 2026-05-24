@@ -345,12 +345,17 @@ impl HotReloader._path_to_module(file_path: str) -> str {
 
 """Emit a client-side error overlay for compilation errors."""
 impl HotReloader._emit_client_error_overlay(file_path: str, errors: str) -> None {
+    import from jaclang.runtimelib.entry_generators { get_entry_generator }
     output_base = Path(self.base_path) / self._client_output_dir;
     output_dir = output_base;
     output_dir.mkdir(parents=True, exist_ok=True);
     js_filename = "_entry.js";
     output_path = output_dir / js_filename;
-    entry_content = f'import React from "react";\nimport {{ createRoot }} from "react-dom/client";\nimport {{ errorOverlay }} from "@jac/runtime";\n\nconst root = createRoot(document.getElementById("root"));\nroot.render(errorOverlay("{file_path} ", ` {errors}`), null);\n';
+    # Target-specific overlay script. Web emits a react-dom mount; native
+    # will emit an RN ErrorBoundary screen in a later phase.
+    entry_content: str = str(
+        get_entry_generator("web:error_overlay")(file_path, errors)
+    );
     # Update the entry point to show the error overlay
     output_path.write_text(entry_content, encoding='utf-8');
     # Mark that have an overlay entry
@@ -397,14 +402,16 @@ impl HotReloader._copy_frontend_files(file_path: str) -> None {
 
 """Update the entry point to reflect changes in modules."""
 impl HotReloader._update_entry_point -> None {
-    import from jaclang.runtimelib.react_entry { build_simple_react_entry_script }
+    import from jaclang.runtimelib.entry_generators { get_entry_generator }
     output_base = Path(self.base_path) / self._client_output_dir;
     output_base.mkdir(parents=True, exist_ok=True);
     output_path = output_base / "_entry.js";
     # Skip __jacInstallErrorHandlers — handlers were bound to window during the
     # initial mount and persist across HMR re-renders.
-    entry_content = build_simple_react_entry_script(
-        self.module_name, install_global_handlers=False
+    # str() cast: the registry's EntryGenerator alias is Callable so the
+    # checker sees the call result as Unknown. Runtime contract is str.
+    entry_content: str = str(
+        get_entry_generator("web")(self.module_name, install_global_handlers=False)
     );
     output_path.write_text(entry_content, encoding='utf-8');
     self._overlay_entry = False;

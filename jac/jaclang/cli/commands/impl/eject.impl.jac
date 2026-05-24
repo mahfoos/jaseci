@@ -1030,9 +1030,9 @@ createRoot against <div id="root">. Without this, `vite dev` serves the
 files and 200s cleanly, but the page stays blank.
 """
 def _emit_entry_js(frontend_src_dir: Path, entry_module: str) {
-    import from jaclang.runtimelib.react_entry { build_simple_react_entry_script }
+    import from jaclang.runtimelib.entry_generators { get_entry_generator }
     (frontend_src_dir / "__jac_entry.js").write_text(
-        build_simple_react_entry_script(entry_module), encoding="utf-8"
+        str(get_entry_generator("web")(entry_module)), encoding="utf-8"
     );
 }
 

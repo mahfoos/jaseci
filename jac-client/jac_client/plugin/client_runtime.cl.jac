@@ -21,6 +21,16 @@ import from 'zod' { z }
 
 def:pub __jacJsx(tag: any, props: dict = {}, children: any = []) -> JsxElement;
 
+# Renderer dispatch (R3). `__jacJsx` delegates to a renderer object the active
+# target registers at bundle init time. The renderer shape is
+# `{ create(tag, props, children) -> element }`. Web auto-registers a
+# pass-through-to-React.createElement renderer lazily; React Native (and any
+# future non-DOM target) calls `__jacRegisterRenderer` before any JSX runs.
+# Stored on `globalThis.__jacRenderer__` so it survives HMR module reloads.
+def:pub __jacRegisterRenderer(renderer: any) -> None;
+def:pub __jacGetRenderer -> any;
+def:pub __jacWebCreate(tag: any, props: dict = {}, children: any = []) -> JsxElement;
+
 # React hooks re-exported for auto-injection by `has` variables and `can with entry/exit` effects
 glob:pub useState = reactUseState,
      useEffect = reactUseEffect,

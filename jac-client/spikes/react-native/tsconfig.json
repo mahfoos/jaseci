@@ -1,0 +1,21 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "jsx": "react-native",
+    "paths": {
+      "@jac/runtime": ["./native_runtime.ts"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "jac-compiled/**/*.js"
+  ],
+  "exclude": ["node_modules", "backend", "android", "ios"]
+}
