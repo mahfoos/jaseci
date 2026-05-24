@@ -7,12 +7,17 @@ import from jac_client.plugin.src.targets.web_target { WebTarget }
 import from jac_client.plugin.src.targets.desktop_target { DesktopTarget }
 import from jac_client.plugin.src.targets.pwa_target { PWATarget }
 import from jac_client.plugin.src.targets.mobile_target { MobileTarget }
+import from jac_client.plugin.src.targets.react_native_target { ReactNativeTarget }
 
-# Side-effect import: registers the 'web' entry generator with
-# `jaclang.runtimelib.entry_generators`. Native and other targets will add
-# their own imports here when their generators land.
+# Side-effect imports: each entry-generator module registers itself with
+# `jaclang.runtimelib.entry_generators` under its target key. Importing the
+# module from here guarantees the registration happens before any target's
+# build flow runs.
 import from jac_client.plugin.src.entry_generators.web_entry {
     build_simple_react_entry_script
+}
+import from jac_client.plugin.src.entry_generators.native_entry {
+    build_native_entry_script
 }
 
 # Note: Jac's annex pass should auto-discover .impl.jac files automatically
@@ -36,4 +41,10 @@ def register_targets {
     # Register mobile target (Capacitor)
     mobile_target = MobileTarget();
     registry.register(mobile_target);
+
+    # Register React Native target (Expo + Metro). Methods raise
+    # NotImplementedError today — the build flow lands in follow-up
+    # Phase 1 PRs (see REACT_NATIVE_ARCHITECTURE.md).
+    react_native_target = ReactNativeTarget();
+    registry.register(react_native_target);
 }

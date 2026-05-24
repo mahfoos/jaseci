@@ -45,8 +45,8 @@ with entry {
             "client",
             typ=str,
             default="web",
-            help="Build client (web, desktop, pwa, mobile)",
-            choices=["web", "desktop", "pwa", "mobile"],
+            help="Build client (web, desktop, pwa, mobile, react-native)",
+            choices=["web", "desktop", "pwa", "mobile", "react-native"],
             short=""  # Disable auto-generated -t (may conflict with other plugins)
         ),
         Arg.create(
@@ -205,8 +205,11 @@ class JacCmd {
                         "client",  # Use client to avoid conflict with jac-scale's --client
                         typ=str,
                         default="web",
-                        help="Client build target for dev server (web, desktop, pwa, mobile)",
-                        choices=["web", "desktop", "pwa", "mobile"],
+                        help=(
+                            "Client build target for dev server "
+                            "(web, desktop, pwa, mobile, react-native)"
+                        ),
+                        choices=["web", "desktop", "pwa", "mobile", "react-native"],
                         short=""  # Disable auto-generated short flag
                     ),
                     Arg.create(
@@ -419,7 +422,16 @@ def _handle_build_target(ctx: HookContext) -> None {
         ctx.set_data("cancel_execution", True);
         ctx.set_data("cancel_return_code", 0);
     } except NotImplementedError as e {
-        console.error(f"Target '{target_name}' is not yet implemented.");
+        # Surface the underlying message — Phase-1-stub targets (e.g. the
+        # react-native ReactNativeTarget skeleton) point users at the
+        # roadmap doc and the specific phase, which is more useful than a
+        # generic "not yet implemented" line.
+        detail = str(e).strip();
+        if detail {
+            console.error(f"Target '{target_name}' build failed: {detail}");
+        } else {
+            console.error(f"Target '{target_name}' is not yet implemented.");
+        }
         ctx.set_data("cancel_execution", True);
         ctx.set_data("cancel_return_code", 1);
     } except Exception as e {
@@ -702,7 +714,12 @@ def _handle_setup_target(ctx: HookContext) -> None {
         ctx.set_data("cancel_execution", True);
         ctx.set_data("cancel_return_code", 0);
     } except NotImplementedError as e {
-        console.error(f"Target '{target_name}' setup is not yet implemented.");
+        detail = str(e).strip();
+        if detail {
+            console.error(f"Target '{target_name}' setup failed: {detail}");
+        } else {
+            console.error(f"Target '{target_name}' setup is not yet implemented.");
+        }
         ctx.set_data("cancel_execution", True);
         ctx.set_data("cancel_return_code", 1);
     } except Exception as e {

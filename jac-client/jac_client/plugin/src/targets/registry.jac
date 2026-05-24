@@ -11,7 +11,8 @@ enum TargetType {
     WEB = "web",
     DESKTOP = "desktop",
     PWA = "pwa",
-    MOBILE = "mobile"
+    MOBILE = "mobile",
+    REACT_NATIVE = "react-native"
 }
 
 """Get TargetType from string name."""
@@ -28,6 +29,12 @@ def get_target_type(name: str) -> TargetType {
     }
     if name_lower == "mobile" {
         return TargetType.MOBILE;
+    }
+    # Accept several spellings of the React Native target for ergonomics — Q1
+    # resolved the canonical name to "react-native", but underscore and "rn"
+    # alias are common shorthands users will reach for.
+    if name_lower in ("react-native", "react_native", "rn") {
+        return TargetType.REACT_NATIVE;
     }
     raise ValueError(
         f"Unknown target: {name}. Available: {', '.join([t.value for t in TargetType])}"
