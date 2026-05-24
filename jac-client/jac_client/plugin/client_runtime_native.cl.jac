@@ -1,19 +1,17 @@
-"""Web client runtime for Jac (D9 — imports core, adds DOM/router adapters)."""
+"""React Native client runtime (D9 — imports core, adds RN adapters)."""
 
 import from 'react' { * as React }
 import from 'react' { useState as reactUseState, useEffect as reactUseEffect }
-import from 'react-dom/client' { * as ReactDOM }
-import from 'react-router-dom' {
-    BrowserRouter as ReactRouterBrowserRouter,
-    Routes as ReactRouterRoutes,
-    Route as ReactRouterRoute,
-    Link as ReactRouterLink,
-    Navigate as ReactRouterNavigate,
-    Outlet as ReactRouterOutlet,
-    useNavigate as reactRouterUseNavigate,
-    useLocation as reactRouterUseLocation,
-    useParams as reactRouterUseParams
+import from 'react-native' {
+    View as RNView,
+    Text as RNText,
+    Pressable as RNPressable,
+    TextInput as RNTextInput,
+    Image as RNImage,
+    Linking as RNLinking
 }
+import from 'expo-secure-store' { * as SecureStore }
+import from 'expo-constants' { * as ExpoConstants }
 import from 'react-error-boundary' { ErrorBoundary }
 import from 'zod' { z }
 import from client_runtime_core {
@@ -24,28 +22,35 @@ import from client_runtime_core {
 }
 
 def:pub __jacGetRenderer -> any;
-def:pub __jacWebCreate(tag: any, props: dict = {}, children: any = []) -> JsxElement;
+def:pub __jacNativeCreate(
+    tag: any, props: dict = {}, children: any = []
+) -> JsxElement;
 
 glob:pub useState = reactUseState,
      useEffect = reactUseEffect,
-     Router = ReactRouterBrowserRouter,
-     Routes = ReactRouterRoutes,
-     Route = ReactRouterRoute,
-     Link = ReactRouterLink,
-     Navigate = ReactRouterNavigate,
-     useNavigate = reactRouterUseNavigate,
-     useLocation = reactRouterUseLocation,
-     useParams = reactRouterUseParams,
-     Outlet = ReactRouterOutlet,
+     Router = __nativeRouterStub,
+     Routes = __nativeRouterStub,
+     Route = __nativeRouterStub,
+     Link = __nativeRouterStub,
+     Navigate = __nativeRouterStub,
+     Outlet = __nativeRouterStub,
      JacClientErrorBoundary = ErrorBoundary,
      JacSchema = __createJacSchema(z);
 
+def:pub __nativeRouterStub(props: dict = {}) -> JsxElement;
 def:pub useRouter -> dict;
+def:pub useNavigate -> any;
+def:pub useLocation -> dict;
+def:pub useParams -> dict;
 def:pub navigate(path: str) -> None;
 def:pub __getApiBaseUrl -> str;
 def:pub __getLocalStorage(key: str) -> str;
 def:pub __setLocalStorage(key: str, value: str) -> None;
 def:pub __removeLocalStorage(key: str) -> None;
+async def:pub __getLocalStorageAsync(key: str) -> str;
+async def:pub __setLocalStorageAsync(key: str, value: str) -> None;
+async def:pub __removeLocalStorageAsync(key: str) -> None;
+async def:pub __primeNativeTokenCache -> None;
 def:pub AuthGuard(redirect: str = "/login") -> JsxElement;
 def:pub ErrorFallback(error: str, resetErrorBoundary: any) -> JsxElement;
 def:pub JacAwaiting(props: dict) -> JsxElement;
