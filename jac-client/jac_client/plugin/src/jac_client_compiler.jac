@@ -50,7 +50,18 @@ class JacClientCompiler {
 
     def _get_client_dir(self: JacClientCompiler) -> Path;
     def _jac_path_to_js(self: JacClientCompiler, rel_str: str) -> str;
-    def compile_runtime_utils(self: JacClientCompiler) -> tuple[str, list[str]];
+    """Compile the chosen runtime file to ``compiled/client_runtime.js``.
+
+    The output filename is always ``client_runtime.js`` so the bundler's
+    ``@jac/runtime`` alias resolves identically per-target; only the source
+    file differs. Defaults to the web runtime; the React Native target
+    passes ``"client_runtime_native.cl.jac"`` to swap in the RN renderer
+    + secure-store storage adapter (D8/D10) without any bundler changes.
+    """
+    def compile_runtime_utils(
+        self: JacClientCompiler, runtime_filename: str = "client_runtime.cl.jac"
+    ) -> tuple[str, list[str]];
+
     def compile_pwa_runtime(self: JacClientCompiler) -> tuple[str, list[str]];
     def compile_dependencies_recursively(
         self: JacClientCompiler,
@@ -82,8 +93,18 @@ class JacClientCompiler {
     ) -> bool;
 
     def _generate_routes_manifest(self: JacClientCompiler) -> None;
-    """Compile module + deps to ``.jac/client/compiled/`` (no entry file written)."""
+    """Compile module + deps to ``.jac/client/compiled/`` (no entry file written).
+
+    ``runtime_filename`` selects which platform runtime gets compiled into
+    ``compiled/client_runtime.js`` — defaults to the web runtime; the
+    React Native target passes ``"client_runtime_native.cl.jac"``. The
+    PWA runtime is independent (compiled to ``compiled/pwa_runtime.js``)
+    and unaffected by this selection.
+    """
     def compile(
-        self: JacClientCompiler, module: ModuleType, module_path: Path
+        self: JacClientCompiler,
+        module: ModuleType,
+        module_path: Path,
+        runtime_filename: str = "client_runtime.cl.jac"
     ) -> tuple[list[str], list[str]];
 }

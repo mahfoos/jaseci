@@ -32,7 +32,10 @@ it does *not* write the web ``_entry.js``. Bundler-specific orchestrators
 entry generation on top of this output.
 """
 impl JacClientCompiler.compile(
-    self: JacClientCompiler, module: ModuleType, module_path: Path
+    self: JacClientCompiler,
+    module: ModuleType,
+    module_path: Path,
+    runtime_filename: str = "client_runtime.cl.jac"
 ) -> tuple[list[str], list[str]] {
     (module_js, mod, module_manifest) = self.jac_compiler.compile_module(module_path);
     collected_exports: set[str] = set(
@@ -52,7 +55,7 @@ impl JacClientCompiler.compile(
         collected_exports=collected_exports,
         collected_globals=collected_globals
     );
-    self.compile_runtime_utils();
+    self.compile_runtime_utils(runtime_filename);
     import from jac_client.plugin.src.config_loader { JacClientConfig as PwaConfig }
     pwa_config = PwaConfig(self.project_dir);
     if pwa_config.is_pwa_enabled() {
@@ -252,24 +255,157 @@ impl JacClientCompiler.compile_dependencies_recursively(
     }
 }
 
-"""Compile client runtime utilities."""
+"""Collect top-level ``import`` lines from compiled JS."""
+def _extract_import_lines(js_code: str) -> list[str] {
+    imports: list[str] = [];
+    for line in js_code.split('\n') {
+        trimmed = line.strip();
+        if trimmed.startswith('import ') {
+            imports.append(line);
+        }
+    }
+    return imports;
+}
+
+"""Return the ``const _jac = { ... };`` preamble from compiled JS, if present."""
+def _extract_jac_preamble(js_code: str) -> str {
+    start = js_code.find('const _jac =');
+    if start < 0 {
+        return '';
+    }
+    depth = 0;
+    i = js_code.find('{', start);
+    if i < 0 {
+        return '';
+    }
+    while i < len(js_code) {
+        ch = js_code[i];
+        if ch == '{' {
+            depth += 1;
+        } elif ch == '}' {
+            depth -= 1;
+            if depth == 0 {
+                end = i + 1;
+                if end < len(js_code) and js_code[end] == ';' {
+                    end += 1;
+                }
+                return js_code[start:end];
+            }
+        }
+        i += 1;
+    }
+    return '';
+}
+
+"""Drop imports, ``_jac`` preamble, and export from a compiled runtime module."""
+def _extract_function_bodies(js_code: str) -> str {
+    stripped = _strip_esm_export_line(js_code);
+    marker = '\nfunction ';
+    idx = stripped.find(marker);
+    if idx < 0 {
+        marker = '\nasync function ';
+        idx = stripped.find(marker);
+    }
+    if idx < 0 {
+        return stripped;
+    }
+    return stripped[idx + 1:];
+}
+
+"""Merge import lines from two modules, dropping core cross-imports."""
+def _merge_runtime_imports(platform_js: str, core_js: str) -> str {
+    seen: set[str] = set();
+    merged: list[str] = [];
+    for line in _extract_import_lines(platform_js) + _extract_import_lines(core_js) {
+        if 'client_runtime_core' in line {
+            continue;
+        }
+        if line in seen {
+            continue;
+        }
+        seen.add(line);
+        merged.append(line);
+    }
+    return '\n'.join(merged);
+}
+
+"""Remove the trailing ESM ``export { ... };`` line from compiled runtime JS."""
+def _strip_esm_export_line(js_code: str) -> str {
+    lines = js_code.split('\n');
+    filtered: list[str] = [];
+    for line in lines {
+        trimmed = line.strip();
+        if trimmed.startswith('export {') or trimmed.startswith('export{') {
+            continue;
+        }
+        filtered.append(line);
+    }
+    return '\n'.join(filtered);
+}
+
+"""Bundle D9 core + platform runtime into a single ``client_runtime.js``."""
+def _bundle_runtime_js(core_js: str, platform_js: str, export_names: list[str]) -> str {
+    imports = _merge_runtime_imports(platform_js, core_js);
+    jac_preamble = _extract_jac_preamble(platform_js);
+    if not jac_preamble {
+        jac_preamble = _extract_jac_preamble(core_js);
+    }
+    core_body = _extract_function_bodies(core_js);
+    platform_body = _extract_function_bodies(platform_js);
+    export_line = 'export {' + ', '.join(export_names) + '};';
+    parts: list[str] = [];
+    if imports {
+        parts.append(imports);
+    }
+    if jac_preamble {
+        parts.append(jac_preamble);
+    }
+    if core_body {
+        parts.append(core_body);
+    }
+    if platform_body {
+        parts.append(platform_body);
+    }
+    parts.append(export_line);
+    parts.append('__jacWirePlatformAdapters();');
+    return '\n'.join(parts) + '\n';
+}
+
+"""Compile client runtime utilities. ``runtime_filename`` controls which
+platform sibling of ``client_runtime.cl.jac`` is compiled (web vs. RN).
+Always bundles ``client_runtime_core.cl.jac`` first (D9).
+"""
 impl JacClientCompiler.compile_runtime_utils(
-    self: JacClientCompiler
+    self: JacClientCompiler, runtime_filename: str = "client_runtime.cl.jac"
 ) -> tuple[str, list[str]] {
     if not self.runtime_path {
         raise ClientBundleError('Runtime path not set');
     }
-    runtime_utils_path = self.runtime_path.parent / 'client_runtime.cl.jac';
-    (runtimeutils_js, mod, runtimeutils_manifest) = self.jac_compiler.compile_module(
+    plugin_dir = self.runtime_path.parent;
+    core_path = plugin_dir / 'client_runtime_core.cl.jac';
+    runtime_utils_path = plugin_dir / runtime_filename;
+    if not core_path.exists() {
+        raise ClientBundleError(
+            f'Runtime core not found: {core_path}. Expected client_runtime_core.cl.jac.'
+        );
+    }
+    if not runtime_utils_path.exists() {
+        raise ClientBundleError(
+            f'Runtime file not found: {runtime_utils_path}. '
+            'Expected sibling of client_runtime.cl.jac.'
+        );
+    }
+    (core_js, _core_mod, core_manifest) = self.jac_compiler.compile_module(core_path);
+    (platform_js, mod, runtimeutils_manifest) = self.jac_compiler.compile_module(
         runtime_utils_path
     );
-    runtimeutils_exports_list = self.jac_compiler.extract_exports(
-        runtimeutils_manifest
-    );
+    core_exports = self.jac_compiler.extract_exports(core_manifest);
+    platform_exports = self.jac_compiler.extract_exports(runtimeutils_manifest);
     glob_names = list(runtimeutils_manifest.globals) if runtimeutils_manifest else [];
     all_exports = sorted(
-        set(runtimeutils_exports_list + self.ROUTER_EXPORTS + glob_names)
+        set(core_exports + platform_exports + self.ROUTER_EXPORTS + glob_names)
     );
+    runtimeutils_js = _bundle_runtime_js(core_js, platform_js, all_exports);
     self.compiled_dir.mkdir(parents=True, exist_ok=True);
     (self.compiled_dir / 'client_runtime.js').write_text(
         runtimeutils_js, encoding='utf-8'
