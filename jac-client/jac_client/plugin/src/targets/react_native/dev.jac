@@ -49,6 +49,7 @@ import from jac_client.plugin.src.targets.react_native.build {
     lint_unmapped_tags,
     stage_native_image_assets,
     stage_compiled_entry,
+    strip_css_imports,
     write_native_entry
 }
 # Re-use the JacRuntime hub eviction helper from the Capacitor target —
@@ -316,6 +317,9 @@ def rn_hmr_on_jac_changed(
             } except Exception { }
             try {
                 lint_native_incompatible_usage(compiled_dir);
+            } except Exception { }
+            try {
+                strip_css_imports(compiled_dir);
             } except Exception { }
         }
         try {

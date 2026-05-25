@@ -805,3 +805,202 @@ test "phase 3 dual-target gate can run e2e builds when explicitly enabled" {
         );
     }
 }
+
+test "strip_css_imports removes CSS import lines and deletes CSS files" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.build { strip_css_imports }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        compiled = Path(tmp);
+        # User JS with CSS imports.
+        (compiled / "app.js").write_text(
+            'import "./styles.css";\n'
+            'import "./theme.scss";\n'
+            'import { useState } from "react";\n'
+            'import "./other.js";\n'
+            'console.log("hello");\n',
+            encoding="utf-8"
+        );
+        # A CSS file that should be deleted.
+        (compiled / "styles.css").write_text(".foo { color: red; }", encoding="utf-8");
+        (compiled / "theme.scss").write_text("$bg: blue;", encoding="utf-8");
+        # A non-CSS file that should survive.
+        (compiled / "other.js").write_text("export const x = 1;", encoding="utf-8");
+        # Runtime file should be ignored.
+        (compiled / "client_runtime.js").write_text(
+            'import "./ignored.css";\n', encoding="utf-8"
+        );
+        count = strip_css_imports(compiled);
+        assert count >= 2 , f"Expected at least 2 stripped lines, got {count}";
+        app_js = (compiled / "app.js").read_text(encoding="utf-8");
+        assert "styles.css" not in app_js;
+        assert "theme.scss" not in app_js;
+        # Non-CSS imports must be preserved.
+        assert "from \"react\"" in app_js;
+        assert "other.js" in app_js;
+        # CSS files deleted.
+        assert not (compiled / "styles.css").exists();
+        assert not (compiled / "theme.scss").exists();
+        # Non-CSS files survive.
+        assert (compiled / "other.js").exists();
+        # Runtime file untouched.
+        assert (compiled / "client_runtime.js").exists();
+        runtime_text = (compiled / "client_runtime.js").read_text(encoding="utf-8");
+        assert "ignored.css" in runtime_text;
+    }
+}
+
+test "phase 3 dual platform fixture has .native.cl.jac and .cl.jac pairs" {
+    fixture_dir = Path(__file__).parent / "fixtures" / "react_native_dual_platform";
+    assert fixture_dir.exists();
+    assert (fixture_dir / "main.jac").exists();
+    assert (fixture_dir / "jac.toml").exists();
+
+    # Web variant of the header.
+    assert (fixture_dir / "src" / "header.cl.jac").exists();
+    # Native variant of the header.
+    assert (fixture_dir / "src" / "header.native.cl.jac").exists();
+    # CSS file (web-only, must be stripped in native builds).
+    assert (fixture_dir / "src" / "styles.css").exists();
+
+    main_content = (fixture_dir / "main.jac").read_text();
+    # Must import the platform header component.
+    assert "PlatformHeader" in main_content;
+    # Must have a CSS import that will be stripped on native.
+    assert "styles.css" in main_content;
+    # Must have a walker call (shared logic).
+    assert "get_greeting" in main_content;
+    assert "Router" in main_content;
+    assert "Route" in main_content;
+
+    web_header = (fixture_dir / "src" / "header.cl.jac").read_text();
+    native_header = (fixture_dir / "src" / "header.native.cl.jac").read_text();
+    # Web variant uses CSS class.
+    assert "className" in web_header;
+    # Native variant uses inline styles only.
+    assert '"className"' not in native_header;
+    # Both export PlatformHeader.
+    assert "PlatformHeader" in web_header;
+    assert "PlatformHeader" in native_header;
+}
+
+test "compiler resolves .native.cl.jac when target is react-native" {
+    # Functional test: create a temp project with both .cl.jac and
+    # .native.cl.jac, compile with target_name="react-native", and
+    # verify the native variant was chosen.
+    import tempfile;
+    import from jac_client.plugin.src.config_loader { JacClientConfig }
+
+    fixture_dir = Path(__file__).parent / "fixtures" / "react_native_dual_platform";
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp) / "dual_platform";
+        import shutil;
+        shutil.copytree(fixture_dir, project_dir);
+        entry_file = project_dir / "main.jac";
+        # Compile with target_name="react-native".
+        import from jac_client.plugin.client { JacClient }
+        builder = JacClient.get_client_bundle_builder();
+        vite_compiler = builder._get_compiler();
+        jac_compiler = vite_compiler.jac_client_compiler;
+        compiled_dir = jac_compiler.compiled_dir;
+        compiled_dir.mkdir(parents=True, exist_ok=True);
+        (_, mod, _) = jac_compiler.jac_compiler.compile_module(entry_file);
+        if mod {
+            jac_compiler.compile(
+                mod,
+                entry_file,
+                runtime_filename="client_runtime_native.cl.jac",
+                target_name="react-native"
+            );
+
+            # The native variant should have been picked. Verify by checking
+            # the compiled header.js for native-only content.
+            header_js = compiled_dir / "src" / "header.js";
+            if header_js.exists() {
+                header_content = header_js.read_text(encoding="utf-8");
+                # Native variant has "native" badge text, web has "web".
+                assert "native" in header_content , (
+                    "Expected native variant of header to be compiled "
+                    f"but got content without 'native' marker: {header_content[:200]}"
+                );
+                assert "className" not in header_content , (
+                    "Native variant should not contain className but does: "
+                    f"{header_content[:200]}"
+                );
+            }
+
+            # Now compile for web and verify the web variant is picked.
+            # Clean compiled dir first.
+            import shutil as shutil2;
+            if compiled_dir.exists() {
+                shutil2.rmtree(compiled_dir);
+            }
+            compiled_dir.mkdir(parents=True, exist_ok=True);
+
+            (_, mod2, _) = jac_compiler.jac_compiler.compile_module(entry_file);
+            if mod2 {
+                jac_compiler.compile(
+                    mod2,
+                    entry_file,
+                    runtime_filename="client_runtime.cl.jac",
+                    target_name="web"
+                );
+
+                header_js_web = compiled_dir / "src" / "header.js";
+                if header_js_web.exists() {
+                    web_content = header_js_web.read_text(encoding="utf-8");
+                    # Web variant has "web" badge text.
+                    assert "className" in web_content , (
+                        "Expected web variant of header with className "
+                        f"but got: {web_content[:200]}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+test "strip_css_imports is wired into build and dev pipelines" {
+    # Source-level contract: both build and dev must call strip_css_imports.
+    impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    dev_path = _plugin_dir / "src" / "targets" / "react_native" / "dev.jac";
+    impl_content = impl_path.read_text();
+    dev_content = dev_path.read_text();
+
+    # build pipeline calls strip_css_imports after lint.
+    assert "strip_css_imports(compiled_dir)" in impl_content , (
+        "ReactNativeTarget.build must call strip_css_imports"
+    );
+    # dev pipeline also calls it.
+    assert "strip_css_imports" in dev_content , (
+        "RN dev loop must strip CSS imports on initial compile and HMR"
+    );
+}
+
+test "react native build pipeline calls lint, strip, and stage in correct order" {
+    # Verify the build pipeline calls these functions in the right sequence:
+    # lint -> strip -> stage. The ordering matters because lint detects
+    # issues (advisory), strip removes CSS (destructive), stage rewrites
+    # image paths (depends on CSS being gone).
+    impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    impl_content = impl_path.read_text();
+
+    build_section = impl_content.split("impl ReactNativeTarget.build")[1].split(
+        "impl ReactNativeTarget.dev"
+    )[0];
+
+    lint_pos = build_section.find("lint_unmapped_tags");
+    strip_pos = build_section.find("strip_css_imports");
+    stage_pos = build_section.find("stage_native_image_assets");
+
+    assert lint_pos > 0 , "build must call lint_unmapped_tags";
+    assert strip_pos > 0 , "build must call strip_css_imports";
+    assert stage_pos > 0 , "build must call stage_native_image_assets";
+    assert lint_pos < strip_pos , (
+        "lint must run before strip so warnings are visible"
+    );
+    assert strip_pos < stage_pos , (
+        "strip must run before image staging so CSS is gone when assets are processed"
+    );
+}

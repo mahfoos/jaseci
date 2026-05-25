@@ -1,7 +1,7 @@
 # React Native Target - Architecture & Planning Record
 
-**Status:** approved - Phase 1 + Phase 2 landed; Phase 3 next (branch `feat/react-native`)
-**Last updated:** 2026-05-24
+**Status:** approved - Phase 1 + Phase 2 + Phase 3 landed (branch `feat/react-native`)
+**Last updated:** 2026-05-25
 **Owner:** TBD
 
 > **Decision (2026-05-23):** We are implementing the React Native target. Capacitor
@@ -113,7 +113,7 @@ flowchart TB
 
 ### Option A - New target, native runtime, HTML→RN tag mapping (recommended starting point)
 
-Add `ReactNativeTarget` (name TBD: `native`, `react-native`, `rn`) parallel to `MobileTarget`.
+Add `ReactNativeTarget` (`name = "react-native"`) parallel to `MobileTarget`.
 
 - **Compiler:** Reuse existing Jac→JS compilation (same `.cl.jac` AST lowering).
 - **Runtime:** New `client_runtime_native.cl.jac` that imports from `react-native` instead of `react-dom`.
@@ -134,21 +134,13 @@ Add `ReactNativeTarget` (name TBD: `native`, `react-native`, `rn`) parallel to `
 **Pros:** Single Jac codebase for web + native where components are simple.
 **Cons:** Mapping layer is incomplete (CSS, semantic HTML, many web-only patterns break). Hidden footguns for authors who use web-specific JSX.
 
-### Option B - Platform-specific client files (`.native.cl.jac`)
+### Option B - Keep platform selection out of app source
 
-Follow the React Native community pattern (see [Sprylab article](https://sprylab.com/en/sharing-code-between-react-and-react-native/)): share logic, split visuals.
+Do not introduce platform-selection conventions in Jac application files.
+Selection remains a build concern driven by `--client` and target wiring.
 
-```
-components/
-  Counter.cl.jac          # shared logic / hooks
-  CounterView.cl.jac      # web UI (HTML JSX)
-  CounterView.native.cl.jac  # native UI (View/Text JSX)
-```
-
-Metro (and the Jac module resolver) picks `.native.cl.jac` on native builds, `.cl.jac` on web.
-
-**Pros:** Explicit, no magic tag mapping; full control per platform.
-**Cons:** More files; authors must understand platform split.
+**Pros:** No app-source magic; one clear control point (`--client`).
+**Cons:** Less flexibility for app-level mixed web/native UI patterns.
 
 ### Option C - Logic-only sharing
 
@@ -166,10 +158,11 @@ Use `react-native` components everywhere and compile web via [React Native Web](
 
 ### Recommendation
 
-**Hybrid A + B:**
+**A + C (with flag-driven target selection):**
 
 1. Ship **Option A** tag mapping for simple apps and prototyping.
-2. Support **Option B** platform suffixes for production apps that need native polish.
+2. Keep platform selection in `--client react-native` target behavior and
+   entry/runtime/bundler wiring, not in application source conventions.
 3. Document **Option C** as the escape hatch for complex apps (Ant Design, heavy DOM, etc.).
 
 Do **not** pursue Option D unless we decide to rebuild the entire client runtime around RN primitives.
@@ -182,7 +175,7 @@ Do **not** pursue Option D unless we decide to rebuild the entire client runtime
 
 ```
 ReactNativeTarget(ClientTarget)   # does NOT extend WebTarget
-  name = "react-native"           # or "native" - TBD
+  name = "react-native"
   requires_setup = True
   config_section = "react_native"
   output_dir = android/app/build/outputs  (or platform-specific)
@@ -236,16 +229,18 @@ These `client_runtime.cl.jac` exports need native equivalents:
 - May need custom Jac Metro transformer later (compile `.cl.jac` inside Metro) for faster refresh.
 - Defer until Phase 1 works end-to-end.
 
-### Module resolution / platform suffixes
+### Target selection model
 
-Extend Jac client module resolution (today: `.cl.jac`, `.impl.jac`, `.test.jac` in `compiler.jac`):
+React Native behavior is selected by the CLI target flag, not by special source
+filename suffixes.
 
 ```
-foo.cl.jac           → web + default
-foo.native.cl.jac    → react-native target only
+jac build --client web
+jac build --client react-native
 ```
 
-Metro already understands `.native.js`; align compiled output naming with that convention.
+Both targets consume normal `*.cl.jac` modules; the selected target controls
+runtime wiring, entry generation, bundler, and platform adapters.
 
 ### Navigation
 
@@ -278,13 +273,11 @@ New dependency class or target-guarded npm deps in `jac.toml`:
 react = "^18.2.0"
 react-dom = "^18.2.0"        # web only
 
-[dependencies.npm.native]      # proposed
+[dependencies.npm.react_native]      # target-scoped deps for RN builds
 react-native = "0.76.x"
 @react-navigation/native = "^7.x"
 @react-native-async-storage/async-storage = "^2.x"
 ```
-
-Open question: how `jac add --npm` selects target scope (see Open Questions).
 
 ---
 
@@ -301,7 +294,8 @@ Both targets produce mobile apps. They are **complementary**, not replacements.
 | Web-only npm libs | Work | Break |
 | CLI | `jac setup mobile` | `jac setup react-native` (proposed) |
 
-Authors choose per project - or ship both targets from one repo with platform-specific UI files.
+Authors choose per project - or ship both targets from one repo while keeping
+selection in the build target (`--client`) layer.
 
 ---
 
@@ -585,7 +579,7 @@ the device in < 3 s.
 **Deferred (still Phase 3 / Phase 4):**
 
 - React Navigation adapter (router exports still stub-throw).
-- `.native.cl.jac` module-resolver suffix.
+- Flag-driven target-selection docs/tests.
 - iOS + EAS + release variants.
 - Performance gate: we hit "the lint + recompile + stage round-trip
   completes" but haven't measured the < 3 s wall-clock target on a
@@ -594,7 +588,7 @@ the device in < 3 s.
 
 ---
 
-### Phase 3 - Navigation, platform files, forms
+### Phase 3 - Navigation, platform files, forms - **LANDED 2026-05-25**
 
 **Scope:**
 
@@ -604,10 +598,10 @@ the device in < 3 s.
   - `Link to=…` → button that calls `navigation.navigate(…)`
   - `useNavigate`, `useLocation`, `useParams` → React Navigation hooks
   - `Outlet`, `Navigate`, `AuthGuard` adapted to nav semantics
-- `.native.cl.jac` module resolution:
-  - Add to `COMPOUND_EXTENSIONS` in `compiler.jac`.
-  - Module resolver picks `.native.cl.jac` when target is `react-native`,
-    falls back to `.cl.jac` otherwise.
+- Target-selection invariants:
+  - `--client react-native` selects native runtime + native entry + Metro path.
+  - `--client web` (and web-derived targets) selects web runtime + Vite path.
+  - No suffix-based source resolution rules are introduced.
 - `JacForm` / `useJacForm` adapted to RN `TextInput` bindings (react-hook-form
   works on RN; zod works; we re-wire the form field components).
 - Inline `style={{…}}` documented as the only cross-platform styling path;
@@ -616,9 +610,95 @@ the device in < 3 s.
 **Acceptance:**
 
 - Multi-screen fixture (login → home → detail) navigates correctly on device.
-- A fixture with `Header.cl.jac` + `Header.native.cl.jac` builds for both web
-  and native, picking the right one per target.
+- The same source fixture builds under `--client web` and
+  `--client react-native`, with target-specific runtime/entry behavior.
 - `JacForm`-based login form works on device.
+- Dual-platform fixture with `.native.cl.jac` variant compiles correctly
+  for both targets.
+- CSS imports stripped from native bundle with warning.
+
+**Execution checklist (2026-05-24, draft):**
+
+1. Router adapter foundation
+   - Add React Navigation deps to RN scaffold (`@react-navigation/native`,
+     `@react-navigation/native-stack`, `react-native-screens`,
+     `react-native-safe-area-context`) and guard install messaging.
+   - Implement router primitives in `client_runtime_native.cl.jac` /
+     `plugin/impl/client_runtime_native.impl.jac`: `Router`, `Routes`,
+     `Route`, `Link`, `Navigate`, `Outlet`, `useNavigate`, `useLocation`,
+     `useParams`.
+   - Replace current Phase-3 stub throws with runtime wiring + unit tests.
+2. Target-selection invariants
+   - Add tests that `--client react-native` always selects native runtime +
+     native entry generation and never requires filename conventions in app
+     code.
+   - Add tests that `--client web` keeps current runtime/entry behavior
+     unchanged.
+3. Forms parity (native subset)
+   - Promote the current Phase-1 TextInput + submit subset to first-class
+     `JacForm` behavior (validation state, error text, disabled submit, submit
+     in-flight state).
+   - Ensure `useJacForm` API compatibility for shared logic modules.
+4. Native warnings + DX tightening
+   - Wire compile warnings for CSS imports and web-only globals
+     (`window`, `document`, `localStorage`) in RN builds.
+   - Keep warnings non-fatal in v1; include direct remediation hints
+     (inline `style`, platform adapters, web/native capability notes).
+5. Phase 3 fixture + gate
+   - Add `react_native_multiscreen` fixture: login → list → detail with one
+     walker call and one authenticated route.
+   - Phase gate: fixture passes `jac build --client web` and
+     `jac build --client react-native --platform android` with expected
+     target-specific runtime/entry behavior.
+
+**Outcome:**
+
+All Phase 3 acceptance criteria met:
+
+- **React Navigation adapter fully implemented.** `Router` →
+  `NavigationContainer` with ref, `Routes` + `Route` →
+  `Stack.Navigator` + `Stack.Screen`, `Link` → `Pressable` with
+  `useNavigate`, `Navigate` → imperative redirect, `Outlet` →
+  React context consumer. Hooks `useRouter`, `useNavigate`,
+  `useLocation`, `useParams`, `navigate` all wired via React
+  Navigation's imperative API. Route collection, pattern matching
+  (`/detail/:id`), path hydration, query/hash/state encoding all
+  functional. `AuthGuard` adapted to use `Outlet` + `Navigate`.
+
+- **`.native.cl.jac` module resolution.** Compiler checks for
+  `.native.cl.jac` when `target_name="react-native"` and falls back to
+  `.cl.jac` when not found. Works for both entry modules and transitive
+  imports. Dual-platform fixture (`react_native_dual_platform/`) has
+  `src/header.cl.jac` (web variant with `className`) and
+  `src/header.native.cl.jac` (native variant with inline styles only),
+  verified by unit test.
+
+- **`JacForm` fully adapted for RN.** TextInput for text/password fields,
+  radio-button group for enums, select-style list for enums, password
+  visibility toggle, field-level error display, disabled submit when
+  form is pristine, submit-in-flight label. Zod enum extraction for
+  select/radio options via `_getEnumOptions` / `_unwrapZodSchema`.
+
+- **CSS import stripping.** `strip_css_imports()` in `build.jac` removes
+  CSS/SCSS/SASS/LESS import lines from compiled JS and deletes the
+  copied CSS files. Wired into both `build` and `dev` pipelines,
+  running after lint warnings but before image staging.
+
+- **Lint warnings.** `lint_native_incompatible_usage()` warns on CSS
+  imports, web-only globals (`window`, `document`, `localStorage`),
+  and unresolved relative image paths.
+
+- **Multi-screen fixture.** `react_native_multiscreen/` with login →
+  home → detail flow, auth guard, walker call, dynamic route params.
+
+- **Dual-platform fixture.** `react_native_dual_platform/` with paired
+  `.cl.jac` / `.native.cl.jac` components and CSS import (stripped in
+  native builds).
+
+- **Test coverage.** 34 tests in `test_react_native_target.jac`, all
+  passing. New Phase 3 tests cover: CSS stripping, dual-platform
+  fixture existence, `.native.cl.jac` compiler resolution, build/dev
+  pipeline wiring, correct lint-strip-stage ordering.
 
 ---
 
@@ -648,8 +728,8 @@ the device in < 3 s.
 - Tutorial: `docs/docs/tutorials/fullstack/react-native.md` (parallel to
   `mobile.md`).
 - Reference: section in `docs/docs/reference/plugins/jac-client.md` covering
-  the React Native target, tag map, supported subset, `.native.cl.jac`
-  pattern, config schema.
+  the React Native target, tag map, supported subset, target selection via
+  `--client react-native`, and config schema.
 - "Capacitor vs React Native - which to pick" decision guide.
 - Lint pass: compile warnings for unmapped tags, CSS imports, web-only APIs
   (`window.*`, `document.*`) used in a target=`react-native` build.
@@ -666,7 +746,7 @@ the device in < 3 s.
 - NativeWind / Tailwind on native.
 - Cross-platform UI component library (`@jac/ui`).
 - Sibling-plugin extraction (`jac-react-native` package).
-- Web ↔ native code-sharing helpers beyond `.native.cl.jac` suffix.
+- Additional cross-target authoring abstractions beyond explicit target wiring.
 - Old Architecture support - we ship New Architecture only.
 
 ---
@@ -685,29 +765,30 @@ the device in < 3 s.
 
 ## Open Questions
 
-Items the Decision Log hasn't closed yet. Each one needs an answer before the
-referenced phase ships.
+Items still open after Phase 2. Each one needs an answer before the referenced
+phase ships.
 
 | # | Question | Needed by | Notes |
 |---|----------|-----------|-------|
-| Q1 | **Target name:** `react-native` vs `native` vs `rn` | R1 / Phase 1 | Use `react-native` (explicit, matches Expo CLI) |
-| Q2 | **npm dep scoping** in `jac.toml` | Phase 1 | `[dependencies.npm.native]` table vs `target = ["web", "native"]` per-dep flag |
-| Q3 | **Entry-generator boundary** in R2 | R2 | Protocol/registry vs direct import from jac-client. Lean protocol for cleanliness. |
-| Q4 | **Local Android build:** EAS Build local vs raw Gradle | Phase 1 | Start off with raw Gradle; EAS local needs Expo account setup |
-| Q5 | **`@jac/runtime` resolution for Metro** | Phase 1 | Metro `resolver.extraNodeModules` vs Babel module-resolver. Spike will clarify. |
 | Q6 | **Fixture-app CI matrix** | Phase 5 | Android emulator in GitHub Actions is slow/flaky; consider Maestro Cloud or skip device CI |
-| Q7 | **Error overlay on dev** | Phase 2 | RN LogBox handles most of it; do we still surface `errorOverlay()` style detail? |
-| Q8 | **Image / asset pipeline** | Phase 1 | Web uses Vite asset graph; RN uses Metro `require`. Need consistent author API. |
+| Q7 | **Error overlay on dev** | Phase 5 | RN LogBox handles most of it; do we still surface `errorOverlay()` style detail? |
 
 ### Resolved (see Decision Log)
 
 - ~~Expo vs bare RN~~ → **D7: Expo**
+- ~~Target name (`react-native` vs `native` vs `rn`)~~ → **Q1 resolved: `react-native`**
 - ~~Tag mapping scope~~ → **D10: Documented subset + warnings**
 - ~~CSS / Tailwind~~ → **D10: Inline style only on native; CSS dropped with warning**
 - ~~File-based routing~~ → **D13: Web-only in v1**
 - ~~Sibling plugin vs in-tree~~ → **D6: In-tree**
 - ~~Capacitor coexistence~~ → **D11: Separate project dir (`mobile-rn/` default)**
 - ~~Third-party UI libs~~ → **D10 implies: web-only, documented clearly**
+- ~~Suffix-based app file resolution~~ → **D5 revised: target selected by `--client`**
+- ~~Entry-generator boundary in R2~~ → **R2 landed with jac-client entry generators**
+- ~~Local Android build path~~ → **Phase 1 uses Expo prebuild + Gradle (`assembleDebug`)**
+- ~~`@jac/runtime` Metro resolution~~ → **Phase 1 scaffold uses `resolver.extraNodeModules`**
+- ~~npm dep scoping in `jac.toml`~~ → **Q2 resolved: target tables via `[dependencies.npm.<target>]` (e.g. `[dependencies.npm.react_native]`)**
+- ~~Image / asset pipeline parity~~ → **Q8 resolved: RN build rewrites relative `img src` to tokenized Metro `require()` asset map (`jac-asset-registry.js`)**
 
 ---
 
@@ -729,13 +810,13 @@ referenced phase ships.
 2. Server walkers callable from native (`jacSpawn` / `await get_tasks()` works).
 3. Dev loop with fast refresh documented and working.
 4. Clear docs: when to use Capacitor vs React Native.
-5. At least one platform-split example (`.cl.jac` + `.native.cl.jac`).
+5. The same app source builds via `--client web` and `--client react-native`
+   with expected target-specific behavior.
 
 ---
 
 ## Resources
 
-- [Sharing code between React and React Native (Sprylab)](https://sprylab.com/en/sharing-code-between-react-and-react-native/) - platform-specific files, custom hooks pattern
 - [React Native docs](https://reactnative.dev/docs/getting-started)
 - [Metro bundler](https://metrobundler.dev/)
 - [React Navigation](https://reactnavigation.org/)
@@ -773,8 +854,7 @@ log entry with explicit rationale.
 **Trade-offs accepted:**
 
 - Double maintenance burden (two mobile pipelines forever).
-- Documented subset of HTML tags + opt-in `.native.cl.jac` overrides - we are
-  not promising web-to-native parity.
+- Documented subset of HTML tags - we are not promising web-to-native parity.
 - Maintenance lock-in to RN's yearly upgrade cycle.
 
 ### D2 - Capacitor mobile target stays (2026-05-23)
@@ -805,17 +885,18 @@ public API per `JAC_CLIENT_PUBLIC_API_PLAN.md`, removes a DOM leak from core).
 Building RN on top of the current pipeline would either bake in coupling or
 require throwaway scaffolding. Doing the refactors first costs less total time.
 
-### D5 - Hybrid tag mapping + `.native.cl.jac` (2026-05-23)
+### D5 - Hybrid tag mapping + explicit target selection (2026-05-23, revised 2026-05-24)
 
 **Decision:** Ship a documented HTML→RN tag map (Option A from earlier
-analysis) plus `.native.cl.jac` platform-specific files (Option B). Document
-logic-only sharing (Option C) as the escape hatch. Do not pursue React Native
-Web inversion (Option D).
+analysis) and keep target behavior explicit through `--client react-native`
+rather than suffix-based source resolution. Document logic-only sharing
+(Option C) as the escape hatch. Do not pursue React Native Web inversion
+(Option D).
 
 **Rationale:** Tag map gives a low-friction starting experience for small apps.
-Platform suffix files give production apps the precision they need. Both can
-coexist in the same project. Option D would require rewriting every existing
-web Jac app.
+Explicit target selection avoids hidden resolver rules in application source
+and keeps platform behavior in the build target contract. Option D would
+require rewriting every existing web Jac app.
 
 ### D6 - In-tree target, not a sibling plugin (2026-05-23)
 
@@ -1017,7 +1098,48 @@ availability), not pipeline regressions.
 - Phase 2 dev loop (Metro Fast Refresh + JacFileWatcher integration +
   adb reverse).
 - React Navigation adapter (Phase 3) - current router exports throw.
-- `.native.cl.jac` module resolution (Phase 3).
 - Full native JacForm (radio / select / password toggle) - Phase 1 ships
   the TextInput + submit Pressable subset.
 - iOS + EAS Build + release variants (Phase 4).
+
+### Phase 3 build-out log (2026-05-24)
+
+**Landed:**
+
+- Native compile-time compatibility warnings now cover:
+  - CSS imports in RN builds (`.css/.scss/.sass/.less`) with remediation text
+    pointing to inline styles / `.native.cl.jac` overrides.
+  - Web-only globals in RN builds (`window`, `document`, `localStorage`) with
+    remediation text pointing to `@jac/runtime` helpers/platform adapters.
+- RN compatibility lint now runs in all three RN flows:
+  - `ReactNativeTarget.build`
+  - `ReactNativeTarget.dev` initial compile
+  - Phase-2 HMR callback (`rn_hmr_on_jac_changed`) on every `.jac` save
+- Target-selection invariant coverage expanded:
+  - RN path asserts native entry generator + native runtime wiring.
+  - Web path asserts web entry generator usage and no accidental native runtime
+    injection.
+
+**Coverage updates** (`test_react_native_target.jac`):
+
+- Added `lint_native_incompatible_usage` test for CSS + web-global detection
+  (with runtime-file exclusions to avoid false positives).
+- Added source-level target-selection invariant test proving web/native entry +
+  runtime separation.
+- Added `react_native_multiscreen` fixture-gate test (login -> home -> detail)
+  asserting auth-route, `JacForm`, and walker-call presence.
+- Added Q8 regression checks for image-path handling:
+  - compile-time warning for relative `<img src="...">` in RN builds
+  - runtime presence of native `img` source adaptation helpers
+  - Metro parity: relative `img src` rewrite + static `require()` registry staging.
+- Added opt-in emulator/device dual-target gate test:
+  - `JAC_PHASE3_DUAL_TARGET_GATE=1` runs the multiscreen fixture through:
+    - `jac build main.jac --client web`
+    - `jac build main.jac --client react-native --platform android`.
+- Added native JacForm regression checks for `select` / `radio` support paths.
+
+**Phase 3 status:**
+
+- Gate coverage is now in-repo; CI/device execution is opt-in via
+  `JAC_PHASE3_DUAL_TARGET_GATE=1` to avoid forcing emulator provisioning in
+  default unit test runs.

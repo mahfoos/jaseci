@@ -427,6 +427,67 @@ def lint_native_incompatible_usage(compiled_dir: Path) -> dict[(str, list[str])]
     };
 }
 
+"""Strip CSS / SCSS / SASS / LESS import lines from compiled JS modules.
+
+Metro cannot bundle CSS files the way Vite does — RN uses
+``StyleSheet.create`` and inline ``style={{…}}`` objects. When the user's
+Jac code uses ``cl import ".styles.css"`` (web-only styling), the
+compiled output still contains ``import "./styles.css";``. On native
+this import would cause Metro to error ("unable to resolve module").
+
+This function removes those import lines from every user JS file in
+``compiled_dir`` and also deletes the copied CSS source files so Metro
+doesn't encounter them through ``watchFolders``.
+
+Returns the count of stripped import lines for logging / testing.
+"""
+def strip_css_imports(compiled_dir: Path) -> int {
+    import re;
+
+    css_import_pattern = re.compile(
+        r"^import\s+['\"][^'\"]+\.(?:css|scss|sass|less)['\"]\s*;\s*$", re.MULTILINE
+    );
+    css_asset_extensions = {".css",".scss",".sass",".less"};
+    stripped_total = 0;
+    css_files_removed = 0;
+
+    for js_file in _iter_user_js_files(compiled_dir) {
+        try {
+            text = js_file.read_text(encoding="utf-8");
+        } except Exception {
+            continue;
+        }
+        matches = css_import_pattern.findall(text);
+        if len(matches) > 0 {
+            new_text = css_import_pattern.sub("", text);
+            js_file.write_text(new_text, encoding="utf-8");
+            stripped_total += len(matches);
+        }
+    }
+
+    # Remove copied CSS/SCSS/SASS/LESS files from compiled/ so Metro's
+    # watchFolders scan doesn't surface them as unresolvable modules.
+    for asset_file in compiled_dir.rglob("*") {
+        if asset_file.is_file() and asset_file.suffix in css_asset_extensions {
+            try {
+                asset_file.unlink();
+                css_files_removed += 1;
+            } except Exception {
+                pass;
+            }
+        }
+    }
+
+    if stripped_total > 0 {
+        console.print(
+            f"  ✔ Stripped {stripped_total} CSS import(s) from compiled modules "
+            f"({css_files_removed} CSS file(s) removed)",
+            style="success"
+        );
+    }
+    return stripped_total;
+}
+
 """Run ``expo prebuild`` to materialize the ``android/`` directory.
 
 Idempotent — Expo only rewrites files it owns. Skipped entirely if a

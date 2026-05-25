@@ -36,6 +36,7 @@ import from jac_client.plugin.src.targets.react_native.build {
     run_xcodebuild_ios,
     stage_native_image_assets,
     stage_compiled_entry,
+    strip_css_imports,
     write_native_entry
 }
 import from jac_client.plugin.src.targets.react_native.config {
@@ -200,6 +201,7 @@ impl ReactNativeTarget.build(
     # cycles bundling something the renderer will fall back on.
     lint_unmapped_tags(compiled_dir);
     lint_native_incompatible_usage(compiled_dir);
+    strip_css_imports(compiled_dir);
     stage_native_image_assets(compiled_dir, rn_dir);
 
     # Step 2: stage compiled entry + write index.ts so Metro picks them up.
@@ -230,20 +232,18 @@ impl ReactNativeTarget.build(
             console.print("  Step 3: Building Android with Gradle...", style="muted");
             artifact = run_gradle_assemble(rn_dir, release=release);
         }
+    } elif ios_builder == "eas" {
+        eas_profile = _resolve_rn_eas_profile(rn_cfg, release);
+        console.print(
+            f"  Step 3: Building iOS with EAS local (profile={eas_profile})...",
+            style="muted"
+        );
+        artifact = run_eas_local_build(
+            rn_dir, platform="ios", profile=eas_profile, release=release
+        );
     } else {
-        if ios_builder == "eas" {
-            eas_profile = _resolve_rn_eas_profile(rn_cfg, release);
-            console.print(
-                f"  Step 3: Building iOS with EAS local (profile={eas_profile})...",
-                style="muted"
-            );
-            artifact = run_eas_local_build(
-                rn_dir, platform="ios", profile=eas_profile, release=release
-            );
-        } else {
-            console.print("  Step 3: Building iOS with xcodebuild...", style="muted");
-            artifact = run_xcodebuild_ios(rn_dir, release=release);
-        }
+        console.print("  Step 3: Building iOS with xcodebuild...", style="muted");
+        artifact = run_xcodebuild_ios(rn_dir, release=release);
     }
 
     if _resolve_rn_eas_update_enabled(rn_cfg) {
@@ -369,6 +369,7 @@ impl ReactNativeTarget.dev(
     console.print("  ✔ Native client modules compiled", style="success");
     lint_unmapped_tags(compiled_dir);
     lint_native_incompatible_usage(compiled_dir);
+    strip_css_imports(compiled_dir);
     stage_native_image_assets(compiled_dir, rn_dir);
 
     # Step 2: stage entry + index.ts so the running Metro picks them up.

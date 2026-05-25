@@ -1,0 +1,12 @@
+.header-bar {
+    background-color: #2563eb;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header-badge {
+    font-size: 12px;
+    opacity: 0.8;
+}
