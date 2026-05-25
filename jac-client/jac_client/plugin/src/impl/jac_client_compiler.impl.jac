@@ -55,7 +55,8 @@ impl JacClientCompiler.compile(
     self._has_pages = self._scan_and_compile_pages(
         visited=visited,
         collected_exports=collected_exports,
-        collected_globals=collected_globals
+        collected_globals=collected_globals,
+        target_name=target_name
     );
     self.compile_runtime_utils(runtime_filename);
     import from jac_client.plugin.src.config_loader { JacClientConfig as PwaConfig }
@@ -467,7 +468,8 @@ impl JacClientCompiler._scan_and_compile_pages(
     self: JacClientCompiler,
     visited: (set[Path] | None) = None,
     collected_exports: (set[str] | None) = None,
-    collected_globals: (dict[(str, Any)] | None) = None
+    collected_globals: (dict[(str, Any)] | None) = None,
+    target_name: str = "web"
 ) -> bool {
     scanner = RouteScanner(self.project_dir);
     if not scanner.has_pages_dir() {
@@ -485,7 +487,8 @@ impl JacClientCompiler._scan_and_compile_pages(
             visited=visited,
             collected_exports=collected_exports,
             collected_globals=collected_globals,
-            source_root=source_root
+            source_root=source_root,
+            target_name=target_name
         );
     }
     self._generate_routes_manifest();

@@ -1,0 +1,9 @@
+# // jac-client: scaffold-managed; remove this line to opt out of auto-refresh
+node_modules/
+.expo/
+dist/
+web-build/
+android/
+ios/
+*.tsbuildinfo
+.DS_Store

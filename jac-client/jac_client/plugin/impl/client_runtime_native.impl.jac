@@ -55,6 +55,7 @@ glob _VIEW_TAGS = [
          "small"
      ],
      _UNMAPPED_WARNED = {},
+     _RELATIVE_IMG_SRC_WARNED = {},
      _JAC_NATIVE_OUTLET_CONTEXT = React.createContext(None),
      _JAC_NATIVE_STACK = jacCreateNativeStackNavigator();
 
@@ -110,7 +111,7 @@ impl __jacNativeCreate(tag: any, props: dict = {}, children: any = []) -> JsxEle
         return React.createElement(RNTextInput, adapted);
     }
     if tag == "img" {
-        return React.createElement(RNImage, adapted);
+        return React.createElement(RNImage, _adaptImageProps(adapted));
     }
     if tag == "a" {
         return _makeNativeLink(adapted, flat);
@@ -174,6 +175,73 @@ def _adaptProps(tag: str, props: dict) -> dict {
         } else {
             out[key] = value;
         }
+    }
+    return out;
+}
+
+def _isAbsoluteImageUri(src: str) -> bool {
+    lower = src.lower();
+    return (
+        lower.startswith("http://")
+        or lower.startswith("https://")
+        or lower.startswith("data:")
+        or lower.startswith("file://")
+        or lower.startswith("content://")
+        or lower.startswith("asset:/")
+    );
+}
+
+def _adaptImageProps(props: dict) -> dict {
+    out = Object.assign({}, props or {});
+    src = out["src"] if out["src"] else None;
+    if out["alt"] and not out["accessibilityLabel"] {
+        out["accessibilityLabel"] = str(out["alt"]);
+    }
+    if src != None and out["source"] == None {
+        if typeof(src) == "number" {
+            out["source"] = src;
+        } else {
+            uri = str(src);
+            asset_map = globalThis.__JAC_RN_ASSET_MAP__ or {};
+            mapped_asset = asset_map[uri] if asset_map else None;
+            if mapped_asset != None {
+                out["source"] = mapped_asset;
+            } elif uri.startswith("__jac_rn_asset__:") {
+                if not _RELATIVE_IMG_SRC_WARNED[uri] {
+                    _RELATIVE_IMG_SRC_WARNED[uri] = True;
+                    console.warn(
+                        "[jac-native-runtime] Missing Metro asset mapping "
+                        f"for token '{uri}'. Re-run `jac build --client react-native`."
+                    );
+                }
+                out["source"] = {"uri": uri};
+            } elif uri.startswith("/") and not _isAbsoluteImageUri(uri) {
+                base = __getApiBaseUrl();
+                if base {
+                    uri = str(base).rstrip("/") + uri;
+                }
+                out["source"] = {"uri": uri};
+            } elif not _isAbsoluteImageUri(uri) {
+                if not _RELATIVE_IMG_SRC_WARNED[uri] {
+                    _RELATIVE_IMG_SRC_WARNED[uri] = True;
+                    console.warn(
+                        "[jac-native-runtime] Relative <img src> path "
+                        f"'{uri}' cannot be bundled reliably on React Native. "
+                        "Use imported assets, `/static/...` URLs, absolute URLs, "
+                        "or pass `source={{uri: ...}}`."
+                    );
+                }
+                out["source"] = {"uri": uri};
+            } else {
+                out["source"] = {"uri": uri};
+            }
+        }
+    }
+    if out["src"] != None {
+        Reflect.deleteProperty(out, "src");
+    }
+    if out["alt"] != None {
+        Reflect.deleteProperty(out, "alt");
     }
     return out;
 }
@@ -813,6 +881,33 @@ impl JacForm(props: dict) -> JsxElement {
     isSubmitting = form.formState.isSubmitting;
     isDirty = form.formState.isDirty;
     [passwordVisible, setPasswordVisible] = useState({});
+    def _unwrapZodSchema(schema_obj: any, depth: int = 0) -> any {
+        max_depth = 10;
+        if not schema_obj or not schema_obj._def or depth >= max_depth {
+            return schema_obj;
+        }
+        type_value = schema_obj._def.type;
+        if type_value == "optional" and schema_obj._def.innerType {
+            return _unwrapZodSchema(schema_obj._def.innerType, depth + 1);
+        }
+        if type_value == "default" and schema_obj._def.innerType {
+            return _unwrapZodSchema(schema_obj._def.innerType, depth + 1);
+        }
+        if schema_obj._def.checks and schema_obj._def.schema {
+            return _unwrapZodSchema(schema_obj._def.schema, depth + 1);
+        }
+        return schema_obj;
+    }
+    def _getEnumOptions(field_schema: any) -> list {
+        unwrapped = _unwrapZodSchema(field_schema);
+        if unwrapped and unwrapped._def and unwrapped._def.entries {
+            return Object.keys(unwrapped._def.entries);
+        }
+        if unwrapped and unwrapped.def and unwrapped.def.entries {
+            return Object.keys(unwrapped.def.entries);
+        }
+        return [];
+    }
     def _fieldErrorMessage(field_name: str) -> str {
         err = errors[field_name] if errors and errors[field_name] else None;
         if not err {
@@ -828,12 +923,15 @@ impl JacForm(props: dict) -> JsxElement {
         config = field_config[fieldName] if field_config[fieldName] else {};
         label = config.label or fieldName;
         placeholder = config.placeholder or "";
-        field_type = str(config.type or "text");
+        field_type = str(config.type or config.key or "text");
+        field_schema = schemaShape[fieldName];
+        field_options = _getEnumOptions(field_schema);
         if field_type == "text"
         and ("password" in fieldName.lower() or "pass" in fieldName.lower()) {
             field_type = "password";
         }
         current_value = form.watch(fieldName);
+        selected_value = "" if current_value == None else str(current_value);
         message = _fieldErrorMessage(fieldName);
         is_password = field_type == "password";
         is_visible = passwordVisible[fieldName] == True if passwordVisible else False;
@@ -844,25 +942,135 @@ impl JacForm(props: dict) -> JsxElement {
             text,
             {"shouldDirty": True, "shouldTouch": True, "shouldValidate": True}
         ); };
-        input_row = React.createElement(
-            RNTextInput,
-            {
-                "placeholder": placeholder,
-                "value": "" if current_value == None else str(current_value),
-                "onChangeText": on_change,
-                "onBlur": field.onBlur,
-                "secureTextEntry": secure,
-                "style": {
-                    "borderWidth": 1,
-                    "borderColor": "#e5e7eb" if message == "" else "#ef4444",
-                    "padding": 10,
-                    "borderRadius": 6,
-                    "backgroundColor": "#ffffff",
-                    "flex": 1
-                }
+        input_row: JsxElement;
+        if field_type == "select" {
+            option_children = [];
+            if placeholder and selected_value == "" {
+                option_children.append(
+                    React.createElement(
+                        RNText,
+                        {
+                            "key": "__placeholder__",
+                            "style": {
+                                "marginBottom": 8,
+                                "color": "#6b7280",
+                                "fontStyle": "italic"
+                            }
+                        },
+                        placeholder
+                    )
+                );
             }
-        );
-        if is_password {
+            for opt in field_options {
+                opt_value = str(opt);
+                is_selected = selected_value == opt_value;
+                option_children.append(
+                    React.createElement(
+                        RNPressable,
+                        {
+                            "key": f"{fieldName}:{opt_value}",
+                            "onPress": lambda { form.setValue(
+                                fieldName,
+                                opt_value,
+                                {
+                                    "shouldDirty": True,
+                                    "shouldTouch": True,
+                                    "shouldValidate": True
+                                }
+                            ); },
+                            "style": {
+                                "borderWidth": 1,
+                                "borderColor": (
+                                    "#2563eb" if is_selected else "#d1d5db"
+                                ),
+                                "paddingVertical": 10,
+                                "paddingHorizontal": 12,
+                                "borderRadius": 6,
+                                "marginBottom": 6,
+                                "backgroundColor": (
+                                    "#eff6ff" if is_selected else "#ffffff"
+                                )
+                            }
+                        },
+                        React.createElement(
+                            RNText, {"style": {"color": "#111827"}}, opt_value
+                        )
+                    )
+                );
+            }
+            args = [RNView, {"style": {"marginTop": 2}}];
+            for child in option_children {
+                args.append(child);
+            }
+            input_row = React.createElement.apply(React, args);
+        } elif field_type == "radio" {
+            option_children = [];
+            for opt in field_options {
+                opt_value = str(opt);
+                is_selected = selected_value == opt_value;
+                option_children.append(
+                    React.createElement(
+                        RNPressable,
+                        {
+                            "key": f"{fieldName}:{opt_value}",
+                            "onPress": lambda { form.setValue(
+                                fieldName,
+                                opt_value,
+                                {
+                                    "shouldDirty": True,
+                                    "shouldTouch": True,
+                                    "shouldValidate": True
+                                }
+                            ); },
+                            "style": {
+                                "flexDirection": "row",
+                                "alignItems": "center",
+                                "paddingVertical": 8
+                            }
+                        },
+                        React.createElement(
+                            RNText,
+                            {
+                                "style": {
+                                    "fontSize": 16,
+                                    "color": "#2563eb" if is_selected else "#9ca3af",
+                                    "marginRight": 8
+                                }
+                            },
+                            "◉" if is_selected else "○"
+                        ),
+                        React.createElement(
+                            RNText, {"style": {"color": "#111827"}}, opt_value
+                        )
+                    )
+                );
+            }
+            args = [RNView, {"style": {"marginTop": 2}}];
+            for child in option_children {
+                args.append(child);
+            }
+            input_row = React.createElement.apply(React, args);
+        } else {
+            input_row = React.createElement(
+                RNTextInput,
+                {
+                    "placeholder": placeholder,
+                    "value": selected_value,
+                    "onChangeText": on_change,
+                    "onBlur": field.onBlur,
+                    "secureTextEntry": secure,
+                    "style": {
+                        "borderWidth": 1,
+                        "borderColor": "#e5e7eb" if message == "" else "#ef4444",
+                        "padding": 10,
+                        "borderRadius": 6,
+                        "backgroundColor": "#ffffff",
+                        "flex": 1
+                    }
+                }
+            );
+        }
+        if field_type == "password" {
             toggle = React.createElement(
                 RNPressable,
                 {

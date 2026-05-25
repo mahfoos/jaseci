@@ -451,11 +451,12 @@ impl JacConfig.merge_from_toml_file(toml_path: Path) -> None {
 
 impl JacConfig.get_plugin_deps(dep_type: str) -> dict[str, any] {
     deps = self.plugin_dependencies.get(dep_type, {});
-    # Filter out the "dev" key which holds dev dependencies
+    # Filter out nested plugin tables (e.g. target-scoped subtables like
+    # [dependencies.npm.react_native]) and the reserved "dev" key.
     return {
         k: v
         for (k, v) in deps.items()
-        if k != "dev"
+        if k != "dev" and not isinstance(v, dict)
     };
 }
 

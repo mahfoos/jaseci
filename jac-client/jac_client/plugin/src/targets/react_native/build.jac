@@ -1,6 +1,6 @@
-"""React Native build orchestration for the Phase 1 target.
+"""React Native build orchestration for Phase 1-4 target flows.
 
-End-to-end flow (Android, no iOS yet — Phase 4):
+End-to-end flow (platform-specific):
 
     1. ``JacClientCompiler.compile(..., runtime_filename="client_runtime_native.cl.jac")``
        writes user modules + the *native* runtime to ``.jac/client/compiled/``.
@@ -11,18 +11,19 @@ End-to-end flow (Android, no iOS yet — Phase 4):
        compiled dir into Metro's module graph for the entry, only for
        ``@jac/runtime`` alias resolution).
 
-    3. Run ``expo prebuild --platform android --no-install`` to materialize
-       ``mobile-rn/android/`` (idempotent — Expo only regenerates files it
+    3. Run ``expo prebuild --platform <android|ios> --no-install`` to
+       materialize ``mobile-rn/android`` or ``mobile-rn/ios`` (idempotent
+       — Expo only regenerates files it
        owns).
 
-    4. Run ``./gradlew assembleDebug`` (Q4 resolved to raw Gradle for
-       Phase 1; EAS Build local is Phase 4 territory).
+    4. Run platform build:
+       - Android: Gradle assembleDebug / assembleRelease (or EAS local).
+       - iOS: xcodebuild on macOS (or EAS local, opt-in).
 
-    5. Locate and return the APK path.
+    5. Locate and return the produced artifact path.
 
-Phase 2 (Fast Refresh dev loop) and Phase 4 (iOS / release / EAS) layer
-on top of this; the splits are intentional so each phase can ship without
-revisiting the prior one.
+Phase 2 (Fast Refresh dev loop) layers on top of this. The low-level helpers
+live here so target impl can stay orchestration-only.
 """
 
 import shutil;
@@ -42,7 +43,55 @@ import from jac_client.plugin.src.targets.react_native.common {
 # specifically for the compile-time lint pass. Single source of truth would
 # be nicer; an internal-API JSON file in `defaults/` is the eventual
 # plan, but Phase 1 ships with the duplication to avoid drag.
-glob _SUPPORTED_HTML_TAGS = {"div","section","main","article","header","footer","nav","aside","ul","ol","li","form","span","p","h1","h2","h3","h4","h5","h6","label","strong","em","small","button","input","textarea","img","a"};
+glob _SUPPORTED_HTML_TAGS = {"div","section","main","article","header","footer","nav","aside","ul","ol","li","form","span","p","h1","h2","h3","h4","h5","h6","label","strong","em","small","button","input","textarea","img","a"},
+     _RUNTIME_JS_FILES = {"client_runtime.js","pwa_runtime.js"},
+     _WEB_ONLY_GLOBALS = ["window", "document", "localStorage"],
+     _RN_ASSET_TOKEN_PREFIX = "__jac_rn_asset__:",
+     _IMG_SRC_ALLOWED_PREFIXES = [
+         "http://",
+         "https://",
+         "data:",
+         "file://",
+         "content://",
+         "asset:/",
+         "/"
+     ];
+
+"""Yield compiled app JS files, excluding runtime helper modules."""
+def _iter_user_js_files(compiled_dir: Path) -> list[Path] {
+    files = [];
+    for js_file in compiled_dir.rglob("*.js") {
+        if js_file.name in _RUNTIME_JS_FILES {
+            continue;
+        }
+        files.append(js_file);
+    }
+    return files;
+}
+
+"""Check whether an image source is a relative path requiring Metro bundling."""
+def _is_relative_img_src(src: str) -> bool {
+    txt = str(src or "").strip();
+    if txt == "" {
+        return False;
+    }
+    txt_lower = txt.lower();
+    for prefix in _IMG_SRC_ALLOWED_PREFIXES {
+        if txt_lower.startswith(prefix) {
+            return False;
+        }
+    }
+    return True;
+}
+
+"""Resolve a relative image path against a compiled JS module path."""
+def _resolve_relative_img_src(js_file: Path, src: str) -> Path | None {
+    candidate = (js_file.parent / src).resolve();
+    if candidate.exists() and candidate.is_file() {
+        return candidate;
+    }
+    return None;
+}
 
 """Generate and write the native entry to ``mobile-rn/index.ts``.
 
@@ -94,7 +143,123 @@ def stage_compiled_entry(compiled_dir: Path, rn_dir: Path, entry_module: str) ->
     if src_map.exists() {
         shutil.copyfile(src_map, rn_dir / "jac-app.js.map");
     }
+    import_line = "import './jac-asset-registry';\n";
+    entry_text = dest.read_text(encoding="utf-8");
+    if import_line not in entry_text {
+        dest.write_text(import_line + entry_text, encoding="utf-8");
+    }
     return dest;
+}
+
+"""Stage relative image assets for Metro ``require()`` parity.
+
+Scans compiled JS for ``__jacJsx("img", {src: "..."})`` with relative sources,
+copies resolvable files into ``mobile-rn/jac-assets/``, rewrites source strings
+to deterministic tokens, and emits ``mobile-rn/jac-asset-registry.js`` with
+static ``require(...)`` entries consumed by the native runtime.
+"""
+def stage_native_image_assets(compiled_dir: Path, rn_dir: Path) {
+    import re;
+    import hashlib;
+
+    img_src_pattern = re.compile(
+        r"""__jacJsx\(\s*['"]img['"]\s*,\s*\{[\s\S]*?\bsrc\s*:\s*['"]([^'"]+)['"]"""
+    );
+    replacements_by_file = {};
+    token_to_asset = {};
+    unresolved = set();
+    rewritten_refs = 0;
+
+    for js_file in _iter_user_js_files(compiled_dir) {
+        try {
+            text = js_file.read_text(encoding="utf-8");
+        } except Exception {
+            continue;
+        }
+        for m in img_src_pattern.finditer(text) {
+            src = str(m.group(1) or "").strip();
+            if not _is_relative_img_src(src) {
+                continue;
+            }
+            resolved = _resolve_relative_img_src(js_file, src);
+            if resolved is None {
+                unresolved.add(src);
+                continue;
+            }
+            token_hash = hashlib.sha1(str(resolved).encode("utf-8")).hexdigest()[:20];
+            token = _RN_ASSET_TOKEN_PREFIX + token_hash;
+            token_to_asset[token] = resolved;
+            if js_file not in replacements_by_file {
+                replacements_by_file[js_file] = [];
+            }
+            replacements_by_file[js_file].append(
+                {"start": int(m.start(1)), "end": int(m.end(1)), "token": token}
+            );
+            rewritten_refs += 1;
+        }
+    }
+
+    for (js_file, replacements) in replacements_by_file.items() {
+        text = js_file.read_text(encoding="utf-8");
+        for repl in reversed(replacements) {
+            start = int(repl["start"]);
+            end = int(repl["end"]);
+            token = str(repl["token"]);
+            text = text[:start] + token + text[end:];
+        }
+        js_file.write_text(text, encoding="utf-8");
+    }
+
+    asset_dir = rn_dir / "jac-assets";
+    if asset_dir.exists() {
+        shutil.rmtree(asset_dir);
+    }
+    asset_dir.mkdir(parents=True, exist_ok=True);
+
+    registry_lines = [
+        "// Auto-generated by jac build --client react-native. Do not edit.",
+        "const __JAC_RN_ASSET_MAP = {"
+    ];
+    for (token, src_path) in sorted(token_to_asset.items()) {
+        ext = src_path.suffix or ".bin";
+        file_hash = hashlib.sha1(
+            (token + "|" + str(src_path)).encode("utf-8")
+        ).hexdigest()[:20];
+        staged_name = file_hash + ext.lower();
+        staged_path = asset_dir / staged_name;
+        shutil.copyfile(src_path, staged_path);
+        registry_lines.append(
+            '  "' + token + '": require(\'./jac-assets/' + staged_name + '\'),'
+        );
+    }
+    registry_lines.append("};");
+    registry_lines.append("globalThis.__JAC_RN_ASSET_MAP__ = __JAC_RN_ASSET_MAP;");
+    registry_lines.append("export default __JAC_RN_ASSET_MAP;");
+    registry_lines.append("");
+    (rn_dir / "jac-asset-registry.js").write_text(
+        "\n".join(registry_lines), encoding="utf-8"
+    );
+
+    unresolved_sorted = sorted(unresolved);
+    if unresolved_sorted {
+        joined = ", ".join(unresolved_sorted);
+        console.warning(
+            "  ⚠ Could not resolve some relative image src values for "
+            f"Metro bundling: {joined}"
+        );
+        console.print(
+            "    Paths are resolved relative to the compiled module file. "
+            "Use imported assets, `/static/...`, or absolute URLs.",
+            style="muted"
+        );
+    }
+
+    return {
+        "bundled_tokens": sorted(token_to_asset.keys()),
+        "bundled_count": len(token_to_asset),
+        "rewritten_refs": rewritten_refs,
+        "unresolved_relative_img_srcs": unresolved_sorted
+    };
 }
 
 """Scan compiled JS modules for HTML tags that fall outside the documented
@@ -111,12 +276,7 @@ def lint_unmapped_tags(compiled_dir: Path) -> list[str] {
     import re;
     pattern = re.compile(r'__jacJsx\(\s*[\'"]([a-z][a-zA-Z0-9]*)[\'"]');
     seen_unmapped: set[str] = set();
-    for js_file in compiled_dir.rglob("*.js") {
-        if js_file.name in ("client_runtime.js", "pwa_runtime.js") {
-            # The runtimes themselves contain the tag-map literals — they'd
-            # generate false positives. Lint only user/app code.
-            continue;
-        }
+    for js_file in _iter_user_js_files(compiled_dir) {
         try {
             text = js_file.read_text(encoding="utf-8");
         } except Exception {
@@ -144,33 +304,160 @@ def lint_unmapped_tags(compiled_dir: Path) -> list[str] {
     return unmapped;
 }
 
+"""Warn on web-only patterns in RN bundles (Phase 3 DX checks).
+
+Two non-fatal checks:
+  1. CSS imports (RN ignores CSS files; use inline ``style={{...}}`` or
+     ``.native.cl.jac`` overrides).
+  2. Web-only globals (``window``, ``document``, ``localStorage``).
+  3. Relative ``<img src="...">`` paths that Metro cannot bundle from
+     compiled Jac JS at runtime.
+"""
+def lint_native_incompatible_usage(compiled_dir: Path) -> dict[(str, list[str])] {
+    import re;
+
+    css_pattern = re.compile(
+        r"""import\s+(?:[^'"]+from\s+)?['"]([^'"]+\.(?:css|scss|sass|less))['"]"""
+    );
+    img_src_pattern = re.compile(
+        r"""__jacJsx\(\s*['"]img['"]\s*,\s*\{[\s\S]*?\bsrc\s*:\s*['"]([^'"]+)['"]"""
+    );
+    css_hits: set[str] = set();
+    global_hits: set[str] = set();
+    relative_img_src_hits: set[str] = set();
+    bundleable_relative_img_src_hits: set[str] = set();
+    unresolved_relative_img_src_hits: set[str] = set();
+    global_patterns = {};
+    for global_name in _WEB_ONLY_GLOBALS {
+        global_patterns[global_name] = re.compile(
+            r"\b" + re.escape(global_name) + r"\b"
+        );
+    }
+
+    for js_file in _iter_user_js_files(compiled_dir) {
+        try {
+            text = js_file.read_text(encoding="utf-8");
+        } except Exception {
+            continue;
+        }
+        for m in css_pattern.finditer(text) {
+            css_hits.add(m.group(1));
+        }
+        for m in img_src_pattern.finditer(text) {
+            src = str(m.group(1) or "").strip();
+            if src == "" {
+                continue;
+            }
+            if _is_relative_img_src(src) {
+                relative_img_src_hits.add(src);
+                resolved = _resolve_relative_img_src(js_file, src);
+                if resolved is None {
+                    unresolved_relative_img_src_hits.add(src);
+                } else {
+                    bundleable_relative_img_src_hits.add(src);
+                }
+            }
+        }
+        for (name, pattern) in global_patterns.items() {
+            if pattern.search(text) {
+                global_hits.add(str(name));
+            }
+        }
+    }
+
+    css_sorted = sorted(css_hits);
+    globals_sorted = sorted(global_hits);
+    relative_img_src_sorted = sorted(relative_img_src_hits);
+    bundleable_relative_img_src_sorted = sorted(bundleable_relative_img_src_hits);
+    unresolved_relative_img_src_sorted = sorted(unresolved_relative_img_src_hits);
+
+    if css_sorted {
+        joined = ", ".join(css_sorted);
+        console.warning(
+            f"  ⚠ React Native build detected CSS imports in compiled code: {joined}"
+        );
+        console.print(
+            "    CSS files are web-only. For --client react-native use "
+            "inline style objects or move platform-specific UI into "
+            "`.native.cl.jac` modules.",
+            style="muted"
+        );
+    }
+    if globals_sorted {
+        joined = ", ".join(globals_sorted);
+        console.warning(
+            "  ⚠ React Native build detected web-only globals in compiled "
+            f"code: {joined}"
+        );
+        console.print(
+            "    `window`, `document`, and `localStorage` are not available "
+            "on React Native. Use runtime helpers from `@jac/runtime` and "
+            "platform adapters.",
+            style="muted"
+        );
+    }
+    if unresolved_relative_img_src_sorted {
+        joined = ", ".join(unresolved_relative_img_src_sorted);
+        console.warning(
+            "  ⚠ React Native build detected unresolved relative image src values in "
+            f"compiled code: {joined}"
+        );
+        console.print(
+            "    These paths could not be mapped to on-disk assets for Metro "
+            "bundling. Prefer imported assets, `/static/...` URLs served by "
+            "the Jac backend, or absolute URLs (`https://...`).",
+            style="muted"
+        );
+    }
+    if bundleable_relative_img_src_sorted {
+        joined = ", ".join(bundleable_relative_img_src_sorted);
+        console.print(
+            "  ℹ React Native build will Metro-bundle relative image src values: "
+            f"{joined}",
+            style="muted"
+        );
+    }
+
+    return {
+        "css_imports": css_sorted,
+        "web_globals": globals_sorted,
+        "relative_img_srcs": relative_img_src_sorted,
+        "bundleable_relative_img_srcs": bundleable_relative_img_src_sorted,
+        "unresolved_relative_img_srcs": unresolved_relative_img_src_sorted
+    };
+}
+
 """Run ``expo prebuild`` to materialize the ``android/`` directory.
 
 Idempotent — Expo only rewrites files it owns. Skipped entirely if a
 managed Android project already exists (the ``.expo/`` marker dir is
 Expo's own signal that prebuild was run before).
 """
-def run_expo_prebuild(rn_dir: Path) -> None {
-    android_dir = rn_dir / "android";
-    if android_dir.exists() and (rn_dir / ".expo" / "prebuild-state.json").exists() {
+def run_expo_prebuild(rn_dir: Path, platform: str = "android") -> None {
+    plat = str(platform or "android").strip().lower();
+    if plat not in ["android", "ios"] {
+        raise ValueError(
+            f"Unsupported Expo prebuild platform '{platform}'. Use android or ios."
+        );
+    }
+    native_dir = rn_dir / plat;
+    if native_dir.exists() and (rn_dir / ".expo" / "prebuild-state.json").exists() {
         console.print("  ✔ Expo prebuild already run", style="muted");
         return;
     }
     npx = resolve_npx();
-    cmd = [npx, "expo", "prebuild", "--platform", "android", "--no-install"];
+    cmd = [npx, "expo", "prebuild", "--platform", plat, "--no-install"];
     console.print(f"  Running expo prebuild: {' '.join(cmd)}", style="muted");
     subprocess.run(cmd, cwd=rn_dir, check=True, capture_output=False);
     console.print("  ✔ Expo prebuild complete", style="success");
 }
 
-"""Run ``./gradlew assembleDebug`` inside ``mobile-rn/android/`` and return
-the produced APK path.
+"""Run Android Gradle assemble and return the produced APK/AAB path.
 
-Q4: We use raw Gradle for Phase 1. EAS Build (local) requires an Expo
-account + login flow that isn't appropriate to gate the basic ``jac build``
-path on. Phase 4 adds an opt-in EAS path.
+When ``release`` is true, runs ``assembleRelease`` and returns the release
+artifact path. Otherwise runs ``assembleDebug``.
 """
-def run_gradle_assemble_debug(rn_dir: Path) -> Path {
+def run_gradle_assemble(rn_dir: Path, release: bool = False) -> Path {
     android_dir = rn_dir / "android";
     if not android_dir.exists() {
         raise RuntimeError(
@@ -193,7 +480,8 @@ def run_gradle_assemble_debug(rn_dir: Path) -> Path {
         } except Exception { }
     }
 
-    cmd = [str(gradlew), "assembleDebug"];
+    gradle_task = "assembleRelease" if release else "assembleDebug";
+    cmd = [str(gradlew), gradle_task];
     console.print(f"  Running gradle: {' '.join(cmd)}", style="muted");
     console.print(
         "  (First build downloads Gradle + Android SDK components; "
@@ -208,23 +496,268 @@ def run_gradle_assemble_debug(rn_dir: Path) -> Path {
         timeout=SUBPROCESS_TIMEOUT_BUILD
     );
 
-    apk_path = (
-        android_dir / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+    preferred = (
+        android_dir / "app" / "build" / "outputs" / "apk" / (
+            "release" if release else "debug"
+        )
     );
-    if not apk_path.exists() {
-        # Fall back to globbing — RN/Expo sometimes name variants
-        # differently if buildFlavors are set up.
-        candidates = list(
-            (android_dir / "app" / "build" / "outputs" / "apk").rglob("*.apk")
+    candidates = [];
+    if preferred.exists() {
+        candidates.extend(
+            [
+                f
+                for f in preferred.rglob("*.apk")
+                if f.is_file()
+            ]
         );
-        if candidates {
-            apk_path = candidates[0];
-        } else {
-            outputs_dir = android_dir / "app" / "build" / "outputs" / "apk";
-            raise RuntimeError(
-                f"Gradle reported success but no APK found under {outputs_dir}"
+    }
+    if not candidates {
+        outputs_root = android_dir / "app" / "build" / "outputs";
+        for ext in [".apk", ".aab"] {
+            candidates.extend(
+                [
+                    f
+                    for f in outputs_root.rglob(f"*{ext}")
+                    if f.is_file()
+                ]
             );
         }
     }
-    return apk_path;
+    if not candidates {
+        raise RuntimeError(
+            "Gradle reported success but no Android artifact was found under "
+            f"{android_dir / 'app' / 'build' / 'outputs'}"
+        );
+    }
+    def _artifact_mtime(path: Path) -> float {
+        return float(path.stat().st_mtime);
+    }
+    candidates.sort(key=_artifact_mtime, reverse=True);
+    return candidates[0];
+}
+
+"""Backward-compatible wrapper for old call sites."""
+def run_gradle_assemble_debug(rn_dir: Path) -> Path {
+    return run_gradle_assemble(rn_dir, release=False);
+}
+
+"""Build iOS via xcodebuild and return a packaged ``.ipa`` path.
+
+Unlike Android, iOS artifacts are expected as IPA files for install/share.
+This helper builds an ``.app`` under a deterministic derived-data folder and
+then zips it into ``Payload/<App>.app`` form.
+"""
+def run_xcodebuild_ios(rn_dir: Path, release: bool = False) -> Path {
+    import platform as platform_mod;
+    if platform_mod.system() != "Darwin" {
+        raise RuntimeError("iOS xcodebuild requires macOS with Xcode installed.");
+    }
+    ios_dir = rn_dir / "ios";
+    if not ios_dir.exists() {
+        raise RuntimeError(
+            f"iOS project not found at {ios_dir}. Did expo prebuild fail?"
+        );
+    }
+    workspace = _find_first_workspace_or_project(ios_dir);
+    if workspace is None {
+        raise RuntimeError(f"No .xcworkspace or .xcodeproj found under {ios_dir}.");
+    }
+    scheme = workspace.stem;
+    sdk = "iphoneos";
+    configuration = "Release" if release else "Debug";
+    destination = "generic/platform=iOS";
+    derived_data = ios_dir / "build";
+
+    build_cmd = [];
+    if workspace.suffix == ".xcworkspace" {
+        build_cmd.extend(["-workspace", str(workspace), "-scheme", scheme]);
+    } else {
+        build_cmd.extend(["-project", str(workspace), "-scheme", scheme]);
+    }
+    build_cmd.extend(
+        [
+            "-configuration",
+            configuration,
+            "-sdk",
+            sdk,
+            "-destination",
+            destination,
+            "-derivedDataPath",
+            str(derived_data),
+            "build"
+        ]
+    );
+    cmd = ["xcodebuild"] + build_cmd;
+    console.print(f"  Running xcodebuild: {' '.join(cmd)}", style="muted");
+    subprocess.run(
+        cmd,
+        cwd=ios_dir,
+        check=True,
+        capture_output=False,
+        timeout=SUBPROCESS_TIMEOUT_BUILD
+    );
+    products_dir = derived_data / "Build" / "Products" / f"{configuration}-iphoneos";
+    app_candidates = [];
+    if products_dir.exists() {
+        app_candidates.extend(
+            [
+                f
+                for f in products_dir.glob("*.app")
+                if f.is_dir()
+            ]
+        );
+    }
+    if not app_candidates {
+        fallback = [];
+        fallback.extend(
+            [
+                f
+                for f in ios_dir.rglob("*.app")
+                if f.is_dir()
+            ]
+        );
+        app_candidates = fallback;
+    }
+    if not app_candidates {
+        raise RuntimeError(
+            "xcodebuild reported success but no .app artifact was found under "
+            f"{derived_data / 'Build' / 'Products'}"
+        );
+    }
+    def _artifact_mtime(path: Path) -> float {
+        return float(path.stat().st_mtime);
+    }
+    app_candidates.sort(key=_artifact_mtime, reverse=True);
+    app_path = app_candidates[0];
+
+    dist_dir = rn_dir / "dist";
+    dist_dir.mkdir(parents=True, exist_ok=True);
+    mode = "release" if release else "debug";
+    ipa_path = dist_dir / f"ios-{mode}-xcodebuild.ipa";
+    _package_ios_app_as_ipa(app_path, ipa_path);
+    return ipa_path;
+}
+
+"""Run EAS local build and return output artifact path."""
+def run_eas_local_build(
+    rn_dir: Path, platform: str, profile: str = "production", release: bool = True
+) -> Path {
+    plat = str(platform or "").strip().lower();
+    if plat not in ["android", "ios"] {
+        raise ValueError(f"Unsupported EAS platform '{platform}'");
+    }
+    npx = resolve_npx();
+    ext = ".ipa" if plat == "ios" else ".apk";
+    mode = "release" if release else "debug";
+    out_dir = rn_dir / "dist";
+    out_dir.mkdir(parents=True, exist_ok=True);
+    out_file = out_dir / f"{plat}-{mode}-local{ext}";
+    cmd = [
+        npx,
+        "eas",
+        "build",
+        "--platform",
+        plat,
+        "--profile",
+        profile,
+        "--local",
+        "--non-interactive",
+        "--output",
+        str(out_file)
+    ];
+    console.print(f"  Running EAS local build: {' '.join(cmd)}", style="muted");
+    subprocess.run(
+        cmd,
+        cwd=rn_dir,
+        check=True,
+        capture_output=False,
+        timeout=SUBPROCESS_TIMEOUT_BUILD
+    );
+    if out_file.exists() {
+        return out_file;
+    }
+    candidates = [
+        f
+        for f in out_dir.rglob(f"*{ext}")
+        if f.is_file()
+    ];
+    if candidates {
+        def _artifact_mtime(path: Path) -> float {
+            return float(path.stat().st_mtime);
+        }
+        candidates.sort(key=_artifact_mtime, reverse=True);
+        return candidates[0];
+    }
+    raise RuntimeError(
+        f"EAS local build completed but no {ext} artifact found under {out_dir}"
+    );
+}
+
+"""Package a built iOS ``.app`` bundle into an ``.ipa`` file."""
+def _package_ios_app_as_ipa(app_path: Path, ipa_path: Path) -> Path {
+    import tempfile;
+    import zipfile;
+
+    if not app_path.exists() or not app_path.is_dir() {
+        raise RuntimeError(f"Cannot package IPA; .app bundle not found: {app_path}");
+    }
+
+    ipa_path.parent.mkdir(parents=True, exist_ok=True);
+    with tempfile.TemporaryDirectory() as tmp {
+        temp_root = Path(tmp);
+        payload_dir = temp_root / "Payload";
+        payload_dir.mkdir(parents=True, exist_ok=True);
+        staged_app = payload_dir / app_path.name;
+        shutil.copytree(app_path, staged_app);
+        with zipfile.ZipFile(
+            ipa_path, mode="w", compression=zipfile.ZIP_DEFLATED
+        ) as zf {
+            for file_path in payload_dir.rglob("*") {
+                if file_path.is_file() {
+                    zf.write(file_path, arcname=str(file_path.relative_to(temp_root)));
+                }
+            }
+        }
+    }
+    return ipa_path;
+}
+
+"""Optional OTA publish hook via EAS Update."""
+def run_eas_update_opt_in(rn_dir: Path, platform: str, branch: str, message: str = "") {
+    npx = resolve_npx();
+    cmd = [
+        npx,
+        "eas",
+        "update",
+        "--branch",
+        branch,
+        "--platform",
+        str(platform),
+        "--non-interactive"
+    ];
+    msg = str(message or "").strip();
+    if msg != "" {
+        cmd.extend(["--message", msg]);
+    } else {
+        cmd.append("--auto");
+    }
+    console.print(
+        "  OTA publish enabled (plugins.client.react_native.eas_update=true)",
+        style="muted"
+    );
+    console.print(f"  Running EAS update: {' '.join(cmd)}", style="muted");
+    subprocess.run(cmd, cwd=rn_dir, check=True, capture_output=False);
+}
+
+"""Find the first ios workspace/project generated by Expo prebuild."""
+def _find_first_workspace_or_project(ios_dir: Path) -> Path | None {
+    workspaces = sorted(list(ios_dir.glob("*.xcworkspace")));
+    if workspaces {
+        return workspaces[0];
+    }
+    projects = sorted(list(ios_dir.glob("*.xcodeproj")));
+    if projects {
+        return projects[0];
+    }
+    return None;
 }

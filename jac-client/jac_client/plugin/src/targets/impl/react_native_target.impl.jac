@@ -1,26 +1,18 @@
-"""Implementation of ReactNativeTarget lifecycle methods (Phase 1).
+"""Implementation of ReactNativeTarget lifecycle methods (Phase 1-4).
 
 `setup`  — scaffolds the Expo project under ``mobile-rn/`` and installs
             native deps (idempotent; safe to re-run).
 `build`  — JacClientCompiler(native runtime) -> stage compiled JS into
-            mobile-rn/ -> expo prebuild -> gradlew assembleDebug.
-            Returns the path to the produced APK.
-`dev`    — Phase 2 (Fast Refresh). Still NotImplementedError today; the
-            scaffolding to add it is in place (the runtime is registered,
-            metro.config.js watches the compiled dir).
-`start`  — Wraps ``build`` + ``adb install`` + ``adb shell am start`` to
-            launch on the connected device/emulator. iOS deferred to
-            Phase 4.
-
-The intentional NotImplementedError for ``dev`` is part of the user
-contract: running ``jac start --client react-native --dev`` today reports
-exactly what is unfinished and points at the roadmap, rather than
-silently doing the wrong thing.
+            mobile-rn/ -> expo prebuild -> platform build backend
+            (Gradle/xcodebuild/EAS local). Returns the produced artifact.
+`dev`    — Phase 2 (Fast Refresh) loop over Metro + JacFileWatcher.
+`start`  — Wraps Android ``build`` + ``adb install`` + ``adb shell am start``.
 """
 
 import os;
 import shutil;
 import subprocess;
+import platform as platform_mod;
 import from typing { cast }
 import from jaclang.cli.console { console }
 import from jaclang.runtimelib.watcher { FileChangeEvent }
@@ -35,11 +27,26 @@ import from jac_client.plugin.src.targets.react_native.scaffold {
     write_expo_scaffold
 }
 import from jac_client.plugin.src.targets.react_native.build {
+    lint_native_incompatible_usage,
     lint_unmapped_tags,
     run_expo_prebuild,
-    run_gradle_assemble_debug,
+    run_gradle_assemble,
+    run_eas_local_build,
+    run_eas_update_opt_in,
+    run_xcodebuild_ios,
+    stage_native_image_assets,
     stage_compiled_entry,
     write_native_entry
+}
+import from jac_client.plugin.src.targets.react_native.config {
+    _load_react_native_config,
+    _resolve_rn_android_builder,
+    _resolve_rn_eas_profile,
+    _resolve_rn_eas_update_branch,
+    _resolve_rn_eas_update_enabled,
+    _resolve_rn_eas_update_message,
+    _resolve_rn_ios_builder,
+    _resolve_rn_release
 }
 import from jac_client.plugin.src.targets.react_native.dev {
     SUBPROCESS_TIMEOUT_SHORT as DEV_SUBPROCESS_TIMEOUT_SHORT,
@@ -99,17 +106,15 @@ impl ReactNativeTarget.setup(project_dir: Path) -> None {
     console.print(
         "  Build: jac build --client react-native --platform android", style="muted"
     );
-    console.print(
-        "  Dev:   jac start --client react-native --dev " "(Phase 2 — not yet)",
-        style="muted"
-    );
+    console.print("  Dev:   jac start --client react-native --dev", style="muted");
 }
 
-"""Build a debug APK from the compiled Jac bundle.
+"""Build a React Native artifact (Android or iOS).
 
-Platform must be 'android' for Phase 1. iOS is deferred to Phase 4 — we
-fail loudly here so users don't get a partial result they then try to
-ship.
+Phase 4 adds:
+  - iOS build path (`xcodebuild` on macOS or EAS local, opt-in)
+  - release/debug switch via `[plugins.client.react_native].release`
+  - optional EAS Update publish hook (`eas_update=true`)
 """
 impl ReactNativeTarget.build(
     entry_file: Path, project_dir: Path, platform: Optional[str] = None
@@ -118,22 +123,41 @@ impl ReactNativeTarget.build(
     import from jac_client.plugin.client { JacClient }
 
     plat = (platform or "android").lower();
-    if plat == "ios" {
-        raise NotImplementedError(
-            "iOS builds for --client react-native are a Phase 4 feature. "
-            f"See {_ROADMAP_URL} (Phase 4). For Phase 1 use --platform android."
-        );
-    }
-    if plat != "android" {
+    if plat not in ["android", "ios"] {
         raise ValueError(
             f"Unsupported platform '{plat}' for --client react-native. "
-            "Use --platform android (iOS lands in Phase 4)."
+            "Use --platform android or --platform ios."
         );
     }
+    rn_cfg = _load_react_native_config(project_dir);
+    release = _resolve_rn_release(rn_cfg);
+    build_label = "release" if release else "debug";
+    ios_builder = _resolve_rn_ios_builder(rn_cfg);
 
     console.print(
-        "\n📱 Building React Native app (Expo + Metro + Gradle)", style="bold"
+        f"\n📱 Building React Native app ({plat}, {build_label})", style="bold"
     );
+
+    if plat == "ios" and platform_mod.system() != "Darwin" {
+        if ios_builder == "xcodebuild" {
+            raise RuntimeError(
+                "iOS native build requested on non-macOS host.\n"
+                "The default iOS builder is xcodebuild, which requires macOS + Xcode.\n"
+                "Use one of:\n"
+                "  1) Run `jac build --client react-native --platform ios` on macOS\n"
+                "  2) Use EAS Build cloud from any OS:\n"
+                "     npx eas build --platform ios --profile production --non-interactive\n"
+                "  3) Set [plugins.client.react_native].ios_builder = \"eas\" and run "
+                "the same EAS command from mobile-rn/"
+            );
+        }
+        raise RuntimeError(
+            "iOS EAS local builds require macOS (Xcode toolchain).\n"
+            "On Linux/Windows, use EAS Build cloud instead:\n"
+            "  npx eas build --platform ios --profile production --non-interactive\n"
+            "Run that command inside mobile-rn/."
+        );
+    }
 
     rn_dir = resolve_rn_project_dir(project_dir);
     if not (rn_dir / "package.json").exists() {
@@ -175,23 +199,72 @@ impl ReactNativeTarget.build(
     # Step 1b: lint pass — surface unmapped HTML tags before Metro burns
     # cycles bundling something the renderer will fall back on.
     lint_unmapped_tags(compiled_dir);
+    lint_native_incompatible_usage(compiled_dir);
+    stage_native_image_assets(compiled_dir, rn_dir);
 
     # Step 2: stage compiled entry + write index.ts so Metro picks them up.
     entry_module: str = entry_file.stem;
     stage_compiled_entry(compiled_dir, rn_dir, entry_module);
     write_native_entry(rn_dir, "jac-app");
 
-    # Step 3: expo prebuild — generates android/ from app.json + plugins.
-    console.print("  Step 2: Running expo prebuild (Android)...", style="muted");
-    run_expo_prebuild(rn_dir);
+    # Step 3: expo prebuild — generates android/ or ios/ from app.json.
+    console.print(
+        f"  Step 2: Running expo prebuild ({plat.capitalize()})...", style="muted"
+    );
+    run_expo_prebuild(rn_dir, plat);
 
-    # Step 4: gradle assembleDebug — produces the APK.
-    console.print("  Step 3: Building Android APK with Gradle...", style="muted");
-    apk_path = run_gradle_assemble_debug(rn_dir);
+    # Step 4: native artifact build (Gradle/xcodebuild/EAS local).
+    artifact: Path;
+    if plat == "android" {
+        android_builder = _resolve_rn_android_builder(rn_cfg);
+        if android_builder == "eas" {
+            eas_profile = _resolve_rn_eas_profile(rn_cfg, release);
+            console.print(
+                f"  Step 3: Building Android with EAS local (profile={eas_profile})...",
+                style="muted"
+            );
+            artifact = run_eas_local_build(
+                rn_dir, platform="android", profile=eas_profile, release=release
+            );
+        } else {
+            console.print("  Step 3: Building Android with Gradle...", style="muted");
+            artifact = run_gradle_assemble(rn_dir, release=release);
+        }
+    } else {
+        if ios_builder == "eas" {
+            eas_profile = _resolve_rn_eas_profile(rn_cfg, release);
+            console.print(
+                f"  Step 3: Building iOS with EAS local (profile={eas_profile})...",
+                style="muted"
+            );
+            artifact = run_eas_local_build(
+                rn_dir, platform="ios", profile=eas_profile, release=release
+            );
+        } else {
+            console.print("  Step 3: Building iOS with xcodebuild...", style="muted");
+            artifact = run_xcodebuild_ios(rn_dir, release=release);
+        }
+    }
 
-    console.success(f"React Native build complete: {apk_path}");
-    console.print("\nInstall with: adb install -r " + str(apk_path), style="muted");
-    return apk_path;
+    if _resolve_rn_eas_update_enabled(rn_cfg) {
+        update_branch = _resolve_rn_eas_update_branch(rn_cfg, release);
+        update_msg = _resolve_rn_eas_update_message(rn_cfg);
+        run_eas_update_opt_in(
+            rn_dir, platform=plat, branch=update_branch, message=update_msg
+        );
+    }
+
+    console.success(f"React Native build complete: {artifact}");
+    if plat == "android" {
+        console.print("\nInstall with: adb install -r " + str(artifact), style="muted");
+    } else {
+        console.print(
+            "\nFor signing/provisioning and distribution, follow Expo iOS build docs:\n"
+            "  https://docs.expo.dev/build-reference/ios-builds/",
+            style="muted"
+        );
+    }
+    return artifact;
 }
 
 """Start the Metro dev loop with Fast Refresh — Phase 2.
@@ -295,6 +368,8 @@ impl ReactNativeTarget.dev(
     );
     console.print("  ✔ Native client modules compiled", style="success");
     lint_unmapped_tags(compiled_dir);
+    lint_native_incompatible_usage(compiled_dir);
+    stage_native_image_assets(compiled_dir, rn_dir);
 
     # Step 2: stage entry + index.ts so the running Metro picks them up.
     entry_module: str = entry_file.stem;

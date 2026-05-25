@@ -45,7 +45,9 @@ import from jac_client.plugin.src.targets.react_native.common {
     resolve_rn_project_dir
 }
 import from jac_client.plugin.src.targets.react_native.build {
+    lint_native_incompatible_usage,
     lint_unmapped_tags,
+    stage_native_image_assets,
     stage_compiled_entry,
     write_native_entry
 }
@@ -299,6 +301,11 @@ def rn_hmr_on_jac_changed(
         compiled_dir = compiler.compiled_dir;
         if compiled_dir is not None {
             try {
+                stage_native_image_assets(compiled_dir, rn_dir);
+            } except Exception as asset_err {
+                console.warning(f"  HMR asset stage warning: {asset_err}");
+            }
+            try {
                 stage_compiled_entry(compiled_dir, rn_dir, entry_module);
             } except Exception as stage_err {
                 console.error(f"  HMR stage failed: {stage_err}");
@@ -306,6 +313,9 @@ def rn_hmr_on_jac_changed(
             }
             try {
                 lint_unmapped_tags(compiled_dir);
+            } except Exception { }
+            try {
+                lint_native_incompatible_usage(compiled_dir);
             } except Exception { }
         }
         try {

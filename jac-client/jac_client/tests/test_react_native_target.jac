@@ -14,6 +14,7 @@ deleting the target file) without standing up a fixture project.
 
 import os;
 import from pathlib { Path }
+import pytest;
 
 glob _plugin_dir = Path(os.path.dirname(__file__)).parent / "plugin";
 
@@ -128,21 +129,41 @@ test "react native dev fails fast when scaffold is missing" {
     }
 }
 
-test "react native ios build raises NotImplementedError with roadmap pointer" {
-    # iOS is explicitly Phase 4 — fail loudly so users don't get a partial
-    # Android-only artifact and try to ship it as iOS.
-    import from jac_client.plugin.src.targets.registry { get_target_factory }
+test "react native build source includes phase 4 ios and release wiring" {
+    # Phase 4 replaces the old iOS NotImplementedError path with real
+    # orchestration. Keep this as a source-level contract check so the
+    # test suite stays deterministic (no Node/Xcode/EAS requirement).
+    impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    build_path = _plugin_dir / "src" / "targets" / "react_native" / "build.jac";
+    cfg_path = _plugin_dir / "src" / "targets" / "react_native" / "config.jac";
 
-    factory = get_target_factory();
-    target = factory.create("react-native", Path.cwd());
+    impl_content = impl_path.read_text();
+    build_content = build_path.read_text();
+    cfg_content = cfg_path.read_text();
 
-    try {
-        target.build(Path("main.jac"), Path.cwd(), platform="ios");
-        assert False , "expected ios build() to raise NotImplementedError";
-    } except NotImplementedError as e {
-        assert "REACT_NATIVE_ARCHITECTURE.md" in str(e);
-        assert "Phase 4" in str(e);
-    }
+    build_section = impl_content.split("impl ReactNativeTarget.build")[1].split(
+        "impl ReactNativeTarget.dev"
+    )[0];
+    assert "NotImplementedError" not in build_section;
+    assert "run_xcodebuild_ios" in build_section;
+    assert "run_eas_local_build" in build_section;
+    assert "_resolve_rn_release" in build_section;
+    assert "_resolve_rn_ios_builder" in build_section;
+    assert "_resolve_rn_android_builder" in build_section;
+    assert "_resolve_rn_eas_update_enabled" in build_section;
+    assert "iOS native build requested on non-macOS host" in build_section;
+    assert "EAS Build cloud" in build_section;
+
+    assert "def run_xcodebuild_ios" in build_content;
+    assert "def run_eas_local_build" in build_content;
+    assert "def run_eas_update_opt_in" in build_content;
+    assert "def _package_ios_app_as_ipa" in build_content;
+    assert ".ipa" in build_content;
+    assert "expo prebuild" in build_content;
+
+    assert "def _resolve_rn_release" in cfg_content;
+    assert "def _resolve_rn_ios_builder" in cfg_content;
+    assert "def _resolve_rn_android_builder" in cfg_content;
 }
 
 test "react native target exposes the documented Phase 1 surface" {
@@ -253,6 +274,15 @@ test "native runtime file ships parallel to the web runtime" {
     assert "Phase 3 features for" not in impl_content;
     assert "__nativeRouterStub" not in cl_content;
     assert "__nativeRouterStub" not in impl_content;
+    # Q8 follow-up: img src -> RN Image source adaptation exists.
+    assert "_adaptImageProps" in impl_content;
+    assert 'uri.startswith("/")' in impl_content;
+    assert "_RELATIVE_IMG_SRC_WARNED" in impl_content;
+    assert "__JAC_RN_ASSET_MAP__" in impl_content;
+    assert "__jac_rn_asset__:" in impl_content;
+    assert 'field_type == "select"' in impl_content;
+    assert 'field_type == "radio"' in impl_content;
+    assert "_getEnumOptions" in impl_content;
 }
 
 test "JacClientCompiler accepts runtime_filename to select native runtime" {
@@ -291,6 +321,10 @@ test "react native compiler selects .native.cl.jac variants when available" {
     assert "native_candidate" in impl_content;
     assert ".native.cl.jac" in impl_content;
     assert "target_name=target_name" in impl_content;
+    assert "_scan_and_compile_pages(" in impl_content;
+    assert "target_name=target_name" in impl_content.split("_scan_and_compile_pages(")[
+        1
+    ];
 }
 
 test "react native target compile calls set target_name to react-native" {
@@ -301,6 +335,26 @@ test "react native target compile calls set target_name to react-native" {
 
     assert "target_name=\"react-native\"" in target_content;
     assert "target_name=\"react-native\"" in dev_content;
+}
+
+test "target selection keeps web and native entry/runtime paths separate" {
+    # Phase 3 invariant: target flag controls runtime + entry generator.
+    # RN must call the native generator/runtime; web must keep web defaults.
+    rn_build_src = _plugin_dir / "src" / "targets" / "react_native" / "build.jac";
+    rn_impl_src = (
+        _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac"
+    );
+    web_compiler_impl = _plugin_dir / "src" / "impl" / "compiler.impl.jac";
+
+    rn_build_content = rn_build_src.read_text();
+    rn_impl_content = rn_impl_src.read_text();
+    web_content = web_compiler_impl.read_text();
+
+    assert 'get_entry_generator("native")' in rn_build_content;
+    assert 'runtime_filename="client_runtime_native.cl.jac"' in rn_impl_content;
+    assert 'get_entry_generator("web")' in web_content;
+    # Web compile path should not force native runtime.
+    assert 'runtime_filename="client_runtime_native.cl.jac"' not in web_content;
 }
 
 test "react native scaffold writes Expo project files" {
@@ -395,6 +449,103 @@ test "lint_unmapped_tags flags HTML tags outside the documented map" {
         assert "div" not in unmapped;
         assert "button" not in unmapped;
     }
+}
+
+test "lint_native_incompatible_usage flags css imports and web globals" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.build {
+        lint_native_incompatible_usage
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        compiled = Path(tmp);
+        (compiled / "feature.js").write_text(
+            'import "./styles.css";\n'
+            'const w = window.location.href;\n'
+            'document.title = "x";\n'
+            'localStorage.setItem("a", "b");\n'
+            '__jacJsx("img", {src: "./avatar.png"}, []);\n'
+            '__jacJsx("img", {src: "/static/assets/logo.png"}, []);\n'
+        );
+        # Runtime file is excluded from lint scanning by design.
+        (compiled / "client_runtime.js").write_text(
+            'import "./ignored.css";\nconst x = window;\n'
+        );
+        result = lint_native_incompatible_usage(compiled);
+        assert "./styles.css" in result["css_imports"];
+        assert "window" in result["web_globals"];
+        assert "document" in result["web_globals"];
+        assert "localStorage" in result["web_globals"];
+        assert "ignored.css" not in result["css_imports"];
+        assert "./avatar.png" in result["relative_img_srcs"];
+        assert "./avatar.png" in result["unresolved_relative_img_srcs"];
+        assert "/static/assets/logo.png" not in result["relative_img_srcs"];
+    }
+}
+
+test "stage_native_image_assets rewrites relative img src to Metro token map" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.build {
+        stage_native_image_assets
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        tmp_path = Path(tmp);
+        compiled = tmp_path / "compiled";
+        rn_dir = tmp_path / "mobile-rn";
+        compiled.mkdir(parents=True);
+        rn_dir.mkdir(parents=True);
+        (compiled / "avatar.png").write_bytes(b"pngbytes");
+        (compiled / "feature.js").write_text(
+            '__jacJsx("img", {src: "./avatar.png"}, []);\n'
+        );
+        result = stage_native_image_assets(compiled, rn_dir);
+        rewritten = (compiled / "feature.js").read_text();
+        registry = (rn_dir / "jac-asset-registry.js").read_text();
+        assert result["bundled_count"] == 1;
+        assert result["unresolved_relative_img_srcs"] == [];
+        assert "__jac_rn_asset__:" in rewritten;
+        assert "require('./jac-assets/" in registry;
+        assert (rn_dir / "jac-assets").exists();
+        staged_assets = list((rn_dir / "jac-assets").glob("*"));
+        assert len(staged_assets) == 1;
+    }
+}
+
+test "stage_compiled_entry injects asset registry import" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.build {
+        stage_compiled_entry,
+        stage_native_image_assets
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        tmp_path = Path(tmp);
+        compiled = tmp_path / "compiled";
+        rn_dir = tmp_path / "mobile-rn";
+        compiled.mkdir(parents=True);
+        rn_dir.mkdir(parents=True);
+        (compiled / "main.js").write_text("export const app = () => null;\n");
+        stage_native_image_assets(compiled, rn_dir);
+        stage_compiled_entry(compiled, rn_dir, "main");
+        staged = (rn_dir / "jac-app.js").read_text();
+        assert "import './jac-asset-registry';" in staged;
+    }
+}
+
+test "phase 3 multiscreen fixture exists with auth routes forms and walker call" {
+    fixture_dir = Path(__file__).parent / "fixtures" / "react_native_multiscreen";
+    assert fixture_dir.exists();
+    assert (fixture_dir / "main.jac").exists();
+    assert (fixture_dir / "jac.toml").exists();
+
+    main_content = (fixture_dir / "main.jac").read_text();
+    assert "AuthGuard" in main_content;
+    assert "JacForm" in main_content;
+    assert "Router" in main_content;
+    assert "Route" in main_content;
+    assert "root spawn whoami()" in main_content;
+    assert 'path="detail/:id"' in main_content;
 }
 
 test "phase 2 dev helpers exist and are importable" {
@@ -565,6 +716,92 @@ test "native entry generator omits web-only imports" {
     for needle in forbidden {
         assert needle not in script , (
             f"native entry leaked web-only symbol: {needle!r}"
+        );
+    }
+}
+
+test "client config supports target-scoped npm table for react native" {
+    import tempfile;
+    import from jac_client.plugin.src.config_loader { JacClientConfig }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp);
+        jac_toml = (
+            "[project]\n"
+            "name = \"rn-target-deps\"\n"
+            "version = \"1.0.0\"\n"
+            "entry-point = \"main.jac\"\n\n"
+            "[dependencies.npm]\n"
+            "react = \"^18.2.0\"\n\n"
+            "[dependencies.npm.react_native]\n"
+            "react-native = \"0.76.6\"\n"
+            "\"expo-secure-store\" = \"~14.0.1\"\n\n"
+            "[plugins.client]\n"
+            "target = \"react_native\"\n"
+        );
+        (project_dir / "jac.toml").write_text(jac_toml, encoding="utf-8");
+        cfg = JacClientConfig(project_dir=project_dir).load();
+        deps = cfg["package"]["dependencies"];
+        assert "react" in deps;
+        assert deps["react-native"] == "0.76.6";
+        assert deps["expo-secure-store"] == "~14.0.1";
+    }
+}
+
+test "phase 3 dual-target gate can run e2e builds when explicitly enabled" {
+    import shutil;
+    import subprocess;
+    import tempfile;
+    import from test_helpers { get_env_with_npm, get_jac_command }
+
+    if os.environ.get("JAC_PHASE3_DUAL_TARGET_GATE", "0") != "1" {
+        pytest.skip(
+            "Set JAC_PHASE3_DUAL_TARGET_GATE=1 to run emulator-grade dual-target gate."
+        );
+    }
+
+    fixture_src = Path(__file__).parent / "fixtures" / "react_native_multiscreen";
+    if not fixture_src.exists() {
+        pytest.skip("react_native_multiscreen fixture not found");
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp) / "react_native_multiscreen";
+        shutil.copytree(fixture_src, project_dir);
+        env = get_env_with_npm();
+        env["JAC_CLIENT_TARGET"] = "react_native";
+        jac_cmd = get_jac_command();
+        web_cmd = jac_cmd + ["build", "main.jac", "--client", "web"];
+        web_result = subprocess.run(
+            web_cmd,
+            cwd=project_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=1200
+        );
+        assert web_result.returncode == 0 , (
+            f"web build failed\nSTDOUT:\n{web_result.stdout}\nSTDERR:\n{web_result.stderr}"
+        );
+        rn_cmd = jac_cmd + [
+            "build",
+            "main.jac",
+            "--client",
+            "react-native",
+            "--platform",
+            "android"
+        ];
+        rn_result = subprocess.run(
+            rn_cmd,
+            cwd=project_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=3600
+        );
+        assert rn_result.returncode == 0 , (
+            "react-native android build failed\n"
+            f"STDOUT:\n{rn_result.stdout}\nSTDERR:\n{rn_result.stderr}"
         );
     }
 }

@@ -42,9 +42,7 @@ def register_targets {
     mobile_target = MobileTarget();
     registry.register(mobile_target);
 
-    # Register React Native target (Expo + Metro). Methods raise
-    # NotImplementedError today — the build flow lands in follow-up
-    # Phase 1 PRs (see REACT_NATIVE_ARCHITECTURE.md).
+    # Register React Native target (Expo + Metro).
     react_native_target = ReactNativeTarget();
     registry.register(react_native_target);
 }

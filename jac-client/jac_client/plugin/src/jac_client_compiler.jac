@@ -90,7 +90,8 @@ class JacClientCompiler {
         self: JacClientCompiler,
         visited: (set[Path] | None) = None,
         collected_exports: (set[str] | None) = None,
-        collected_globals: (dict[(str, Any)] | None) = None
+        collected_globals: (dict[(str, Any)] | None) = None,
+        target_name: str = "web"
     ) -> bool;
 
     def _generate_routes_manifest(self: JacClientCompiler) -> None;

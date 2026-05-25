@@ -1,30 +1,18 @@
 """React Native build target.
 
-Skeleton for the Phase 1 `react-native` target from
-`REACT_NATIVE_ARCHITECTURE.md`. Unlike `MobileTarget`, this target does **not**
-extend `WebTarget` (D3): Metro replaces Vite end-to-end, so inheriting the
+Implements the Expo + Metro + native-runtime path for
+``--client react-native``. Unlike ``MobileTarget``, this target does **not**
+extend ``WebTarget`` (D3): Metro replaces Vite end-to-end, so inheriting the
 web bundle pipeline would couple us to internals we explicitly need to
 diverge from.
-
-Today this class registers itself with the target registry so
-``jac build --client react-native`` and ``jac setup react-native`` resolve to
-a meaningful object. Each lifecycle method raises ``NotImplementedError``
-with a pointer to the architecture doc — subsequent Phase 1 PRs fill them in
-(Expo scaffold, Metro invocation, native runtime wiring, native entry
-generator, etc.). The clear failure mode is intentional: silent partial
-behavior would be worse than an obvious "not yet" while the scaffold is
-being assembled.
 """
 import from pathlib { Path }
 import from typing { Optional }
 import from jaclang.runtimelib.watcher { FileChangeEvent }
 import from jac_client.plugin.src.targets.registry { ClientTarget }
 
-# Importing this module is the documented way to trigger registration of the
-# 'native' entry generator with `jaclang.runtimelib.entry_generators`. The
-# target class doesn't call into it yet — the import side-effect keeps the
-# registration story consistent with `web_entry.jac` for when the build flow
-# lands.
+# Importing this module triggers side-effect registration of the "native"
+# entry generator in `jaclang.runtimelib.entry_generators`.
 import from jac_client.plugin.src.entry_generators.native_entry {
     build_native_entry_script
 }
@@ -73,7 +61,7 @@ obj ReactNativeTarget(ClientTarget) {
         entry_file: Path, project_dir: Path, platform: Optional[str] = None
     ) -> Path;
 
-    """Start the Metro dev loop with Fast Refresh (Phase 2 — not yet)."""
+    """Start the Metro dev loop with Fast Refresh."""
     override def dev(
         entry_file: Path, project_dir: Path, port: int = 8000, api_port: int = 0
     ) -> None;
