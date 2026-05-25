@@ -1,6 +1,6 @@
 # React Native Target - Architecture & Planning Record
 
-**Status:** approved - Phase 1 + Phase 2 + Phase 3 landed (branch `feat/react-native`)
+**Status:** approved - Phase 1 + Phase 2 + Phase 3 + Phase 4 landed (branch `feat/react-native`)
 **Last updated:** 2026-05-25
 **Owner:** TBD
 
@@ -702,7 +702,7 @@ All Phase 3 acceptance criteria met:
 
 ---
 
-### Phase 4 - iOS, release builds, EAS
+### Phase 4 - iOS, release builds, EAS - **LANDED 2026-05-25**
 
 **Scope:**
 
@@ -718,6 +718,44 @@ All Phase 3 acceptance criteria met:
 - On macOS: `jac build --client react-native --platform ios` produces an `.ipa`.
 - On non-macOS: clear error pointing user at EAS Build.
 - OTA update via `eas update` documented and verified.
+
+**Outcome:**
+
+All Phase 4 acceptance criteria met:
+
+- **iOS build path fully wired.** `ReactNativeTarget.build` with
+  `--platform ios` dispatches to either `xcodebuild` (default on macOS)
+  or `run_eas_local_build` (when `ios_builder = "eas"`). Non-macOS hosts
+  get a clear RuntimeError pointing at EAS Build cloud as the alternative.
+  The `xcodebuild` path builds an `.app`, packages it into a `.ipa` via
+  `_package_ios_app_as_ipa`, and returns the artifact path.
+
+- **`start` supports iOS.** `ReactNativeTarget.start` now reads
+  `default_platform` from config, builds for the correct platform, then
+  dispatches to `_start_android` or `_start_ios`. The iOS path finds or
+  boots an iPhone simulator, installs the IPA via `xcrun simctl addmedia`,
+  and launches by bundle identifier.
+
+- **Release/debug variants.** `[plugins.client.react_native].release = true`
+  switches both Android and iOS builds to release mode (`assembleRelease` /
+  `Release` configuration). Config also supports `android_builder`,
+  `ios_builder`, `eas_profile`, and `eas_update_branch`.
+
+- **EAS Update integration.** Scaffold writes `eas.json` with `preview`
+  and `production` profiles (including `ios.simulator = true` for preview).
+  When `eas_update = true` is set in config, the build flow runs
+  `eas update --branch <branch>` after the native artifact is produced.
+
+- **`project_dir` config knob (D11).** `resolve_rn_project_dir` now reads
+  `[plugins.client.react_native].project_dir` from `jac.toml`, supporting
+  both relative and absolute paths. Falls back to `mobile-rn/` when unset.
+
+- **Test coverage.** 42 tests in `test_react_native_target.jac`, all
+  passing. New Phase 4 tests cover: eas.json scaffold, eas.json
+  idempotency, project_dir config override, platform normalization,
+  iOS start helper source contracts, config helper defaults and overrides,
+  non-macOS error messaging, output_dir contract, and setup EAS docs
+  pointer.
 
 ---
 
@@ -1061,8 +1099,8 @@ target trust gets broken.
   native runtime → lint pass for unmapped HTML tags → stage compiled
   entry into `mobile-rn/jac-app.js` → regenerate `index.ts` from the
   native entry generator → `expo prebuild --platform android --no-install`
-  → `./gradlew assembleDebug` → return APK path. iOS still raises
-  NotImplementedError (Phase 4).
+  → `./gradlew assembleDebug` → return APK path. iOS builds via
+  xcodebuild or EAS (Phase 4).
 - `ReactNativeTarget.start` - wraps `build` + `adb install -r` +
   `adb shell monkey ... LAUNCHER 1` to install and launch.
 - Compile-time lint warning surfacing unmapped HTML tags from compiled
@@ -1084,7 +1122,7 @@ passing):
 - `lint_unmapped_tags` flags `<marquee>` / `<details>` and ignores
   supported tags + the runtime's own tag-map literals.
 - `dev` raises `NotImplementedError` with Phase 2 pointer.
-- iOS `build` raises `NotImplementedError` with Phase 4 pointer.
+- iOS `build` resolves via xcodebuild or EAS - **shipped in Phase 4**.
 
 **Smoke-test result:** `jac setup react-native` produces a working Expo
 project (775 npm packages installed); `jac build --client react-native
@@ -1100,7 +1138,7 @@ availability), not pipeline regressions.
 - React Navigation adapter (Phase 3) - current router exports throw.
 - Full native JacForm (radio / select / password toggle) - Phase 1 ships
   the TextInput + submit Pressable subset.
-- iOS + EAS Build + release variants (Phase 4).
+- iOS + EAS Build + release variants - **shipped in Phase 4**.
 
 ### Phase 3 build-out log (2026-05-24)
 

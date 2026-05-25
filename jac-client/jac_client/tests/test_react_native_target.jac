@@ -1,15 +1,10 @@
-"""Tests for the React Native target skeleton.
+"""Tests for the React Native target (Phase 1-4).
 
-The build flow itself is not implemented yet (Phase 1 follow-ups), so these
-tests cover the *discovery surface* — the contract that ``jac build --client
-react-native`` resolves to a registered target, that the native entry
-generator is wired into the registry, and that calling unimplemented
-lifecycle methods raises a loud, well-formed error pointing at the roadmap.
-
-The pattern mirrors ``test_mobile_target.jac``: file-existence checks via
-source scan, plus runtime assertions on the registry and entry-generator
-behavior. Source scans guard against silent regressions (e.g. someone
-deleting the target file) without standing up a fixture project.
+Source-level contract tests and functional unit tests covering target
+registration, scaffold generation, iOS/release/EAS wiring, config
+resolution, and the build/dev pipeline surface. End-to-end device builds
+are gated behind ``JAC_PHASE3_DUAL_TARGET_GATE=1`` and are not exercised
+in default CI.
 """
 
 import os;
@@ -1003,4 +998,243 @@ test "react native build pipeline calls lint, strip, and stage in correct order"
     assert strip_pos < stage_pos , (
         "strip must run before image staging so CSS is gone when assets are processed"
     );
+}
+
+# ---------------------------------------------------------------------------
+# Phase 4 tests — iOS, release builds, EAS, project_dir config
+# ---------------------------------------------------------------------------
+test "react native scaffold writes eas.json with build and update profiles" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.scaffold {
+        write_expo_scaffold
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_root = Path(tmp);
+        rn_dir = project_root / "mobile-rn";
+        write_expo_scaffold(rn_dir, project_root);
+        eas_path = rn_dir / "eas.json";
+        assert eas_path.exists() , f"eas.json not written by scaffold";
+        import json;
+        eas = json.loads(eas_path.read_text(encoding="utf-8"));
+        assert "build" in eas , "eas.json must have a 'build' section";
+        assert "production" in eas["build"] , (
+            "eas.json must include a 'production' build profile"
+        );
+        assert "preview" in eas["build"] , (
+            "eas.json must include a 'preview' build profile"
+        );
+        assert eas["build"]["preview"]["distribution"] == "internal" , (
+            "preview profile must use internal distribution for testing"
+        );
+        assert "android" in eas["build"]["preview"] , (
+            "preview profile must include android config"
+        );
+        assert "ios" in eas["build"]["preview"] , (
+            "preview profile must include ios config"
+        );
+        assert eas["build"]["preview"]["ios"]["simulator"] == True , (
+            "preview ios profile must enable simulator builds"
+        );
+        assert "submit" in eas , "eas.json must have a 'submit' section";
+    }
+}
+
+test "eas.json is scaffold-managed and refreshed on re-run" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.scaffold {
+        write_expo_scaffold
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_root = Path(tmp);
+        rn_dir = project_root / "mobile-rn";
+        write_expo_scaffold(rn_dir, project_root);
+        eas_path = rn_dir / "eas.json";
+        original = eas_path.read_text(encoding="utf-8");
+        import json;
+        eas_data = json.loads(original);
+        assert "_jac_scaffold_managed" in eas_data;
+        # Re-run scaffold; eas.json should be refreshed since it has the marker key.
+        write_expo_scaffold(rn_dir, project_root);
+        assert eas_path.read_text(encoding="utf-8") == original;
+        # Remove the marker key to simulate user edits — re-run must preserve.
+        del eas_data["_jac_scaffold_managed"];
+        custom = json.dumps(eas_data, indent=2) + "\n";
+        eas_path.write_text(custom, encoding="utf-8");
+        write_expo_scaffold(rn_dir, project_root);
+        assert eas_path.read_text(encoding="utf-8") == custom , (
+            "scaffold must not overwrite user-edited eas.json"
+        );
+    }
+}
+
+test "resolve_rn_project_dir honors project_dir config override" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.common {
+        resolve_rn_project_dir
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp);
+        # Default: no config → mobile-rn/
+        default_dir = resolve_rn_project_dir(project_dir);
+        assert default_dir == project_dir / "mobile-rn" , (
+            f"Expected mobile-rn, got {default_dir}"
+        );
+        # Custom relative path.
+        toml_content = (
+            "[project]\nname = \"test\"\nversion = \"1.0\"\n"
+            "entry-point = \"main.jac\"\n\n"
+            "[plugins.client.react_native]\n"
+            'project_dir = "native-app"\n'
+        );
+        (project_dir / "jac.toml").write_text(toml_content, encoding="utf-8");
+        custom_dir = resolve_rn_project_dir(project_dir);
+        assert custom_dir == project_dir / "native-app" , (
+            f"Expected native-app, got {custom_dir}"
+        );
+        # Absolute path.
+        abs_path = Path(tmp) / "abs-native";
+        toml_abs = (
+            "[project]\nname = \"test\"\nversion = \"1.0\"\n"
+            "entry-point = \"main.jac\"\n\n"
+            "[plugins.client.react_native]\n"
+            f'project_dir = "{abs_path}"\n'
+        );
+        (project_dir / "jac.toml").write_text(toml_abs, encoding="utf-8");
+        abs_dir = resolve_rn_project_dir(project_dir);
+        assert abs_dir == abs_path , f"Expected {abs_path}, got {abs_dir}";
+    }
+}
+
+test "normalize_rn_platform validates platform strings" {
+    import from jac_client.plugin.src.targets.react_native.common {
+        normalize_rn_platform
+    }
+
+    assert normalize_rn_platform(None) == "android";
+    assert normalize_rn_platform("") == "android";
+    assert normalize_rn_platform("android") == "android";
+    assert normalize_rn_platform("iOS") == "ios";
+    assert normalize_rn_platform("IOS") == "ios";
+
+    try {
+        normalize_rn_platform("windows");
+        assert False , "Expected ValueError for unsupported platform";
+    } except ValueError as e {
+        assert "Unsupported" in str(e);
+    }
+}
+
+test "phase 4 build source includes iOS start helper" {
+    impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    impl_content = impl_path.read_text();
+
+    # start method must handle both iOS and Android.
+    start_section = impl_content.split("impl ReactNativeTarget.start")[1].split(
+        "impl _RNHmrHandler.on_event"
+    )[0];
+    assert "_start_ios" in start_section;
+    assert "_start_android" in start_section;
+    assert "normalize_rn_platform" in start_section;
+
+    # iOS start helper must exist in the file.
+    assert "def _start_ios" in impl_content;
+    assert "xcrun simctl" in impl_content;
+    assert "bundleIdentifier" in impl_content;
+
+    # Android start helper must still work.
+    assert "def _start_android" in impl_content;
+    assert "adb install" in impl_content;
+}
+
+test "phase 4 config helpers support ios_builder and release" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.config {
+        _load_react_native_config,
+        _resolve_rn_ios_builder,
+        _resolve_rn_android_builder,
+        _resolve_rn_release,
+        _resolve_rn_eas_profile,
+        _resolve_rn_eas_update_enabled,
+        _resolve_rn_eas_update_branch,
+        _resolve_rn_eas_update_message
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp);
+        # Defaults: no config → xcodebuild for iOS, gradle for Android, debug.
+        cfg = _load_react_native_config(project_dir);
+        assert _resolve_rn_ios_builder(cfg) == "xcodebuild";
+        assert _resolve_rn_android_builder(cfg) == "gradle";
+        assert _resolve_rn_release(cfg) == False;
+        assert _resolve_rn_eas_profile(cfg, True) == "production";
+        assert _resolve_rn_eas_profile(cfg, False) == "preview";
+        assert _resolve_rn_eas_update_enabled(cfg) == False;
+        assert _resolve_rn_eas_update_branch(cfg, True) == "production";
+        assert _resolve_rn_eas_update_branch(cfg, False) == "preview";
+        assert _resolve_rn_eas_update_message(cfg) == "";
+        # With config overrides.
+        toml_content = (
+            "[project]\nname = \"test\"\nversion = \"1.0\"\n"
+            "entry-point = \"main.jac\"\n\n"
+            "[plugins.client.react_native]\n"
+            "release = true\n"
+            'ios_builder = "eas"\n'
+            'android_builder = "eas"\n'
+            'eas_profile = "staging"\n'
+            'eas_update = true\n'
+            'eas_update_branch = "main"\n'
+            'eas_update_message = "Phase 4 release"\n'
+        );
+        (project_dir / "jac.toml").write_text(toml_content, encoding="utf-8");
+        cfg2 = _load_react_native_config(project_dir);
+        assert _resolve_rn_ios_builder(cfg2) == "eas";
+        assert _resolve_rn_android_builder(cfg2) == "eas";
+        assert _resolve_rn_release(cfg2) == True;
+        assert _resolve_rn_eas_profile(cfg2, True) == "staging";
+        assert _resolve_rn_eas_update_enabled(cfg2) == True;
+        assert _resolve_rn_eas_update_branch(cfg2, True) == "main";
+        assert _resolve_rn_eas_update_message(cfg2) == "Phase 4 release";
+    }
+}
+
+test "phase 4 build source has non-macOS error pointing at EAS Build" {
+    impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    impl_content = impl_path.read_text();
+
+    build_section = impl_content.split("impl ReactNativeTarget.build")[1].split(
+        "impl ReactNativeTarget.dev"
+    )[0];
+
+    # Non-macOS error must mention EAS Build cloud.
+    assert "EAS Build cloud" in build_section;
+    assert "xcodebuild" in build_section;
+    # iOS path must resolve ios_builder and dispatch accordingly.
+    assert "_resolve_rn_ios_builder" in build_section;
+    assert "run_xcodebuild_ios" in build_section;
+    assert "run_eas_local_build" in build_section;
+}
+
+test "phase 4 build output_dir uses dist not platform-specific" {
+    import from jac_client.plugin.src.targets.registry { get_target_factory }
+
+    factory = get_target_factory();
+    target = factory.create("react-native", Path.cwd());
+    assert "dist" in str(target.output_dir);
+    assert "android" not in str(target.output_dir).lower()
+    or "dist" in str(target.output_dir);
+}
+
+test "react native scaffold includes EAS docs pointer in setup output" {
+    # Verify the setup method prints EAS Build and EAS Update next-step hints.
+    impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
+    impl_content = impl_path.read_text();
+    setup_section = impl_content.split("impl ReactNativeTarget.setup")[1].split(
+        "impl ReactNativeTarget.build"
+    )[0];
+    assert "eas build" in setup_section.lower();
+    assert "eas update" in setup_section.lower();
+    assert "--platform ios" in setup_section;
 }

@@ -51,12 +51,12 @@ obj ReactNativeTarget(ClientTarget) {
         default: bool = False,
         requires_setup: bool = True,
         config_section: str = "react_native",
-        output_dir: Path = Path("mobile-rn/android/app/build/outputs");
+        output_dir: Path = Path("mobile-rn/dist");
 
     """Setup the Expo project scaffold under ``mobile-rn/``."""
     override def setup(project_dir: Path) -> None;
 
-    """Build a debug APK (Phase 1) or release artifact (Phase 4)."""
+    """Build a debug APK/IPA (Phase 1-4) or release artifact."""
     override def build(
         entry_file: Path, project_dir: Path, platform: Optional[str] = None
     ) -> Path;
@@ -66,7 +66,7 @@ obj ReactNativeTarget(ClientTarget) {
         entry_file: Path, project_dir: Path, port: int = 8000, api_port: int = 0
     ) -> None;
 
-    """Build then launch on a connected device or emulator (Phase 2+)."""
+    """Build then launch on a connected device or emulator."""
     override def start(
         entry_file: Path, project_dir: Path, api_port: int = 8000
     ) -> None;

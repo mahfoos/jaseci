@@ -76,12 +76,59 @@ def run_in_dir(cmd: list[str], cwd: Path, label: str) {
     subprocess.run(cmd, cwd=cwd, check=True, capture_output=False);
 }
 
-"""Project directory for the Expo scaffold, honoring config overrides."""
+"""Project directory for the Expo scaffold, honoring config overrides (D11).
+
+Reads ``[plugins.client.react_native].project_dir`` from ``jac.toml``.
+Falls back to ``mobile-rn/`` when not set.
+"""
 def resolve_rn_project_dir(project_dir: Path) -> Path {
-    # Phase 1 honors only the default. The full
-    # ``[plugins.client.react_native].project_dir`` config knob (D11) lands
-    # alongside ``[plugins.client.react_native]`` config loading in a
-    # follow-up; keeping resolution centralized here means that change is
-    # one-file when it ships.
+    cfg = _load_rn_dir_config(project_dir);
+    custom = str(cfg.get("project_dir", "") or "").strip();
+    if custom {
+        # Treat relative paths as project-root-relative; pass absolute
+        # paths through unchanged.
+        p = Path(custom);
+        if not p.is_absolute() {
+            p = project_dir / p;
+        }
+        return p;
+    }
     return project_dir / DEFAULT_PROJECT_DIR_NAME;
+}
+
+"""Load the raw ``[plugins.client.react_native]`` table for project_dir resolution.
+
+Lighter-weight than ``_load_react_native_config`` in config.jac (which
+re-opens ``jac.toml``) — but duplicated here to avoid circular imports
+between common.jac and config.jac.
+"""
+def _load_rn_dir_config(project_dir: Path) -> dict {
+    try {
+        import tomllib;
+        toml_path = project_dir / "jac.toml";
+        if toml_path.exists() {
+            cfg = tomllib.loads(toml_path.read_text(encoding="utf-8"));
+            return cfg.get("plugins", {}).get("client", {}).get("react_native", {});
+        }
+    } except Exception {
+        ;
+    }
+    return {};
+}
+
+"""Normalize and validate react-native platform string.
+
+Defaults to ``'android'``. Accepts ``'android'`` or ``'ios'``.
+"""
+def normalize_rn_platform(platform: str | None = None) -> str {
+    if platform is None or platform.strip() == "" {
+        return "android";
+    }
+    value = platform.lower().strip();
+    if value in ("android", "ios") {
+        return value;
+    }
+    raise ValueError(
+        f"Unsupported react-native platform '{platform}'. " "Supported: android, ios."
+    );
 }

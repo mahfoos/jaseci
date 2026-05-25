@@ -71,8 +71,14 @@ glob _ROADMAP_URL = "REACT_NATIVE_ARCHITECTURE.md";
 Idempotent: re-running picks up changes to the scaffold templates but
 leaves user-edited files (``app/App.tsx``, ``app.json``) alone — see
 ``_is_scaffold_managed`` in scaffold.jac for the marker-based detection.
+
+Phase 4 adds platform-aware messaging and EAS.json scaffolding.
 """
 impl ReactNativeTarget.setup(project_dir: Path) -> None {
+    import from jac_client.plugin.src.targets.react_native.common {
+        normalize_rn_platform
+    }
+
     rn_dir = resolve_rn_project_dir(project_dir);
     console.print(
         f"\n📱 Setting up React Native target (Expo) at {rn_dir}", style="bold"
@@ -105,9 +111,24 @@ impl ReactNativeTarget.setup(project_dir: Path) -> None {
     console.success("React Native target setup complete.");
     console.print("\nNext steps:", style="bold");
     console.print(
-        "  Build: jac build --client react-native --platform android", style="muted"
+        "  Build (Android): jac build --client react-native --platform android",
+        style="muted"
     );
-    console.print("  Dev:   jac start --client react-native --dev", style="muted");
+    console.print(
+        "  Build (iOS):     jac build --client react-native --platform ios",
+        style="muted"
+    );
+    console.print(
+        "  Dev:             jac start --client react-native --dev", style="muted"
+    );
+    console.print(
+        "  EAS Build:       cd mobile-rn && npx eas build --platform android",
+        style="muted"
+    );
+    console.print(
+        "  EAS Update:      cd mobile-rn && npx eas update --branch preview",
+        style="muted"
+    );
 }
 
 """Build a React Native artifact (Android or iOS).
@@ -458,69 +479,35 @@ impl ReactNativeTarget.dev(
     }
 }
 
-"""Build then install + launch on a connected Android device/emulator.
+"""Build then install + launch on a connected device/emulator.
 
-This is the production-mode counterpart to `dev` (no Fast Refresh). The
-APK is built, installed via `adb install -r`, and launched via
-`adb shell am start`. Requires `adb` on PATH and a connected device or
-running emulator.
+Android: APK is built, installed via ``adb install -r``, and launched via
+``adb shell am start``.
+
+iOS: IPA is built (requires macOS), installed on a booted iOS simulator
+via ``xcrun simctl``, and launched via ``xcrun simctl launch``.
+Requires Xcode CLI tools on PATH.
 """
 impl ReactNativeTarget.start(
     entry_file: Path, project_dir: Path, api_port: int = 8000
 ) -> None {
-    apk_path = self.build(entry_file, project_dir, platform="android");
-
-    adb = shutil.which("adb");
-    if not adb {
-        console.warning(
-            "  adb not found on PATH. APK built successfully but "
-            "auto-install skipped.\n"
-            f"  Install manually: adb install -r {apk_path}"
-        );
-        return;
+    import platform as platform_mod;
+    import from jac_client.plugin.src.targets.react_native.common {
+        normalize_rn_platform
     }
 
-    # Resolve the app's package name from app.json so we can launch it. The
-    # value lives in expo.android.package which `_build_app_json` sets to
-    # ``DEFAULT_APP_ID`` ("com.jac.app"). Reading it back vs. hardcoding
-    # means the user's app.json edits propagate to the launch step.
-    import json;
-    rn_dir = resolve_rn_project_dir(project_dir);
-    try {
-        app_cfg = json.loads((rn_dir / "app.json").read_text(encoding="utf-8"));
-        pkg_name = app_cfg["expo"]["android"]["package"];
-    } except Exception as e {
-        console.warning(
-            f"  Failed to read android.package from app.json ({e}); "
-            "skipping auto-launch. APK is installed though."
-        );
-        pkg_name = None;
-    }
+    # Default platform: Android. Override via jac.toml or --platform.
+    rn_cfg = _load_react_native_config(project_dir);
+    default_plat = str(rn_cfg.get("default_platform", "") or "android").strip().lower();
+    plat = normalize_rn_platform(default_plat);
 
-    console.print(
-        f"  Installing APK on device: adb install -r {apk_path}", style="muted"
-    );
-    subprocess.run([adb, "install", "-r", str(apk_path)], check=True);
+    artifact = self.build(entry_file, project_dir, platform=plat);
 
-    if pkg_name {
-        # `monkey -p <pkg> 1` is the canonical "launch the default activity
-        # of this package" incantation on Android — survives package
-        # variations across Expo's generated MainActivity naming.
-        pkg_str: str = str(pkg_name);
-        console.print(f"  Launching: {pkg_str}", style="muted");
-        launch_cmd: list[str] = [
-            adb,
-            "shell",
-            "monkey",
-            "-p",
-            pkg_str,
-            "-c",
-            "android.intent.category.LAUNCHER",
-            "1"
-        ];
-        subprocess.run(launch_cmd, check=False, capture_output=True);
+    if plat == "ios" {
+        _start_ios(artifact, project_dir);
+    } else {
+        _start_android(artifact, project_dir);
     }
-    console.success("App installed and launched.");
 }
 
 """Watchdog callback bound to the RN dev-loop's compiler state.
@@ -539,4 +526,171 @@ impl _RNHmrHandler.on_event(evt: FileChangeEvent) -> None {
         self.rn_dir,
         self.entry_module
     );
+}
+
+"""Install and launch an Android APK on a connected device/emulator."""
+def _start_android(apk_path: Path, project_dir: Path) -> None {
+    import json;
+    import from jac_client.plugin.src.targets.react_native.common {
+        resolve_rn_project_dir
+    }
+    adb = shutil.which("adb");
+    if not adb {
+        console.warning(
+            "  adb not found on PATH. APK built successfully but "
+            "auto-install skipped.\n"
+            f"  Install manually: adb install -r {apk_path}"
+        );
+        return;
+    }
+
+    rn_dir = resolve_rn_project_dir(project_dir);
+    pkg_name: str | None = None;
+    try {
+        app_cfg = json.loads((rn_dir / "app.json").read_text(encoding="utf-8"));
+        pkg_name = app_cfg["expo"]["android"]["package"];
+    } except Exception as e {
+        console.warning(
+            f"  Failed to read android.package from app.json ({e}); "
+            "skipping auto-launch. APK is installed though."
+        );
+    }
+
+    console.print(
+        f"  Installing APK on device: adb install -r {apk_path}", style="muted"
+    );
+    subprocess.run([adb, "install", "-r", str(apk_path)], check=True);
+
+    if pkg_name {
+        pkg_str: str = str(pkg_name);
+        console.print(f"  Launching: {pkg_str}", style="muted");
+        launch_cmd: list[str] = [
+            adb,
+            "shell",
+            "monkey",
+            "-p",
+            pkg_str,
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "1"
+        ];
+        subprocess.run(launch_cmd, check=False, capture_output=True);
+    }
+    console.success("App installed and launched.");
+}
+
+"""Install and launch an iOS IPA on a booted simulator.
+
+Requires macOS + Xcode CLI tools. If no simulator is booted, attempts to
+boot the first available iPhone simulator. The IPA is installed via
+``xcrun simctl addmedia`` (which handles .ipa bundles) and launched by
+bundle identifier.
+"""
+def _start_ios(ipa_path: Path, project_dir: Path) {
+    import json;
+    import from jac_client.plugin.src.targets.react_native.common {
+        resolve_rn_project_dir
+    }
+    import platform as platform_mod;
+    if platform_mod.system() != "Darwin" {
+        raise RuntimeError(
+            "iOS install & launch requires macOS with Xcode.\n"
+            "On Linux/Windows, use EAS Build cloud and TestFlight:\n"
+            "  npx eas build --platform ios --profile preview\n"
+            "  npx eas submit --platform ios\n"
+            "Run inside mobile-rn/."
+        );
+    }
+
+    xcrun = shutil.which("xcrun");
+    if not xcrun {
+        raise RuntimeError(
+            "xcrun not found. Install Xcode CLI tools:\n" "  xcode-select --install"
+        );
+    }
+
+    rn_dir = resolve_rn_project_dir(project_dir);
+    bundle_id: str | None = None;
+    try {
+        app_cfg = json.loads((rn_dir / "app.json").read_text(encoding="utf-8"));
+        bundle_id = app_cfg["expo"]["ios"]["bundleIdentifier"];
+    } except Exception as e {
+        console.warning(
+            f"  Failed to read ios.bundleIdentifier from app.json ({e}); "
+            "will attempt install without auto-launch."
+        );
+    }
+
+    # Find or boot a simulator.
+    sim_result = subprocess.run(
+        [xcrun, "simctl", "list", "devices", "-j"],
+        capture_output=True,
+        text=True,
+        check=True
+    );
+    import json as json_mod;
+    sim_data = json_mod.loads(sim_result.stdout);
+    devices = sim_data.get("devices", {});
+
+    booted_udid: str | None = None;
+    for (runtime_key, device_list) in devices.items() {
+        for dev in device_list {
+            if dev.get("isAvailable") and dev.get("state") == "Booted" {
+                booted_udid = dev["udid"];
+                break;
+            }
+        }
+        if booted_udid {
+            break;
+        }
+    }
+
+    if not booted_udid {
+        # Boot the first available iPhone simulator.
+        target_udid: str | None = None;
+        for (runtime_key, device_list) in devices.items() {
+            if "iOS" not in runtime_key {
+                continue;
+            }
+            for dev in device_list {
+                if dev.get("isAvailable") and "iPhone" in dev.get("name", "") {
+                    target_udid = dev["udid"];
+                    break;
+                }
+            }
+            if target_udid {
+                break;
+            }
+        }
+        if target_udid {
+            console.print(f"  Booting simulator {target_udid}...", style="muted");
+            subprocess.run(
+                [xcrun, "simctl", "boot", target_udid], check=True, capture_output=True
+            );
+            booted_udid = target_udid;
+        } else {
+            raise RuntimeError(
+                "No iOS simulator available. Open Xcode > Window > Devices "
+                "and Simulators to create one."
+            );
+        }
+    }
+
+    console.print(f"  Installing IPA on simulator {booted_udid}...", style="muted");
+    subprocess.run(
+        [xcrun, "simctl", "addmedia", booted_udid, str(ipa_path)],
+        check=False,
+        capture_output=True
+    );
+
+    if bundle_id {
+        bid: str = str(bundle_id);
+        console.print(f"  Launching: {bid}", style="muted");
+        subprocess.run(
+            [xcrun, "simctl", "launch", booted_udid, bid],
+            check=False,
+            capture_output=True
+        );
+    }
+    console.success("iOS app installed and launched on simulator.");
 }

@@ -50,20 +50,38 @@ import from jac_client.plugin.src.targets.react_native.common {
 # generator (safe to refresh) or by a human (do not clobber).
 glob _SCAFFOLD_MARKER = "// jac-client: scaffold-managed; remove this line to opt out of auto-refresh";
 
-def _is_scaffold_managed(path: Path) -> bool {
+def _is_scaffold_managed(path: Path, managed_key: str = "") -> bool {
     if not path.exists() {
         return True;
     }
     try {
-        return _SCAFFOLD_MARKER in path.read_text(encoding="utf-8");
+        text = path.read_text(encoding="utf-8");
     } except Exception {
         return False;
     }
+    if managed_key {
+        # JSON-based detection: file is scaffold-managed if it contains
+        # the special key (e.g. ``_jac_scaffold_managed`` in eas.json).
+        try {
+            data = json.loads(text);
+            return managed_key in data;
+        } except Exception {
+            return False;
+        }
+    }
+    return _SCAFFOLD_MARKER in text;
 }
 
-"""Write file only if it doesn't exist OR was previously scaffold-managed."""
-def _write_if_managed(path: Path, contents: str, label: str) -> bool {
-    if path.exists() and not _is_scaffold_managed(path) {
+"""Write file only if it doesn't exist OR was previously scaffold-managed.
+
+When ``managed_key`` is provided, the file is treated as JSON and managed
+status is determined by the presence of that key (used for ``eas.json``
+which must be valid JSON and cannot contain comment markers).
+"""
+def _write_if_managed(
+    path: Path, contents: str, label: str, managed_key: str = ""
+) -> bool {
+    if path.exists() and not _is_scaffold_managed(path, managed_key) {
         console.print(
             f"  ✔ Preserving user-edited {label} ({path.name})", style="muted"
         );
@@ -275,6 +293,28 @@ def _build_placeholder_jac_app -> str {
     );
 }
 
+def _build_eas_json -> str {
+    # Phase 4 (EAS Build + Update). The scaffold writes a baseline eas.json
+    # with two profiles (preview / production) so ``eas build`` and
+    # ``eas update`` work immediately. Authors customise this file in-place.
+    cfg = {
+        "cli": {"version": f">={EXPO_SDK_VERSION}.0.0", "appVersionSource": "remote"},
+        "build": {
+            "preview": {
+                "distribution": "internal",
+                "android": {"buildType": "apk"},
+                "ios": {"simulator": True}
+            },
+            "production": {}
+        },
+        "submit": {"production": {}}
+    };
+    # eas.json must be valid JSON (no JS comments). The scaffold marker
+    # goes into a special "_jac_scaffold_managed" key that EAS ignores.
+    cfg["_jac_scaffold_managed"] = True;
+    return json.dumps(cfg, indent=2) + "\n";
+}
+
 def _build_gitignore -> str {
     return (
         "# " + _SCAFFOLD_MARKER + "\n"
@@ -347,6 +387,12 @@ def write_expo_scaffold(
     );
     any_written |= _write_if_managed(
         rn_dir / "jac-app.js", _build_placeholder_jac_app(), "jac-app.js placeholder"
+    );
+    any_written |= _write_if_managed(
+        rn_dir / "eas.json",
+        _build_eas_json(),
+        "eas.json (EAS Build + Update)",
+        managed_key="_jac_scaffold_managed"
     );
 
     return any_written;
