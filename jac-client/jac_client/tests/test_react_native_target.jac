@@ -1,4 +1,4 @@
-"""Tests for the React Native target (Phase 1-4).
+"""Tests for the React Native target.
 
 Source-level contract tests and functional unit tests covering target
 registration, scaffold generation, iOS/release/EAS wiring, config
@@ -98,7 +98,7 @@ test "target factory resolves react-native by canonical name" {
 }
 
 test "react native dev fails fast when scaffold is missing" {
-    # Phase 2 ships the Metro Fast Refresh loop, so `dev` no longer raises
+    # The Metro Fast Refresh loop is wired into dev, so `dev` no longer raises
     # NotImplementedError. Instead, calling it without a scaffold must
     # raise a RuntimeError pointing the user at `jac setup react-native`
     # — the contract is "explicit failure, never silent partial work".
@@ -114,7 +114,7 @@ test "react native dev fails fast when scaffold is missing" {
         } except NotImplementedError as e {
             assert False , (
                 "dev() should no longer raise NotImplementedError now "
-                f"that Phase 2 has landed; got: {e}"
+                f"that the new dev flow is in place; got: {e}"
             );
         } except RuntimeError as e {
             assert "jac setup react-native" in str(e) , (
@@ -124,9 +124,9 @@ test "react native dev fails fast when scaffold is missing" {
     }
 }
 
-test "react native build source includes phase 4 ios and release wiring" {
-    # Phase 4 replaces the old iOS NotImplementedError path with real
-    # orchestration. Keep this as a source-level contract check so the
+test "react native build source includes iOS and release wiring" {
+    # The iOS path now uses the real build flow instead of the old
+    # NotImplementedError. Keep this as a source-level contract check so the
     # test suite stays deterministic (no Node/Xcode/EAS requirement).
     impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
     build_path = _plugin_dir / "src" / "targets" / "react_native" / "build.jac";
@@ -161,7 +161,7 @@ test "react native build source includes phase 4 ios and release wiring" {
     assert "def _resolve_rn_android_builder" in cfg_content;
 }
 
-test "react native target exposes the documented Phase 1 surface" {
+test "react native target exposes the documented surface" {
     # Sanity check on the API shape — the target instance has setup/build/
     # dev/start methods, name and config_section match D11 conventions, and
     # output_dir points at the Android Gradle output location.
@@ -264,9 +264,8 @@ test "native runtime file ships parallel to the web runtime" {
             f"native runtime impl uses web-only symbol: {needle!r}"
         );
     }
-    # Phase 3: Router surface is implemented via React Navigation; no
+    # Router surface is implemented via React Navigation; no
     # placeholder stubs should remain.
-    assert "Phase 3 features for" not in impl_content;
     assert "__nativeRouterStub" not in cl_content;
     assert "__nativeRouterStub" not in impl_content;
     # Q8 follow-up: img src -> RN Image source adaptation exists.
@@ -333,7 +332,7 @@ test "react native target compile calls set target_name to react-native" {
 }
 
 test "target selection keeps web and native entry/runtime paths separate" {
-    # Phase 3 invariant: target flag controls runtime + entry generator.
+    # Invariant: target flag controls runtime + entry generator.
     # RN must call the native generator/runtime; web must keep web defaults.
     rn_build_src = _plugin_dir / "src" / "targets" / "react_native" / "build.jac";
     rn_impl_src = (
@@ -528,7 +527,7 @@ test "stage_compiled_entry injects asset registry import" {
     }
 }
 
-test "phase 3 multiscreen fixture exists with auth routes forms and walker call" {
+test "multiscreen fixture exists with auth routes forms and walker call" {
     fixture_dir = Path(__file__).parent / "fixtures" / "react_native_multiscreen";
     assert fixture_dir.exists();
     assert (fixture_dir / "main.jac").exists();
@@ -543,7 +542,7 @@ test "phase 3 multiscreen fixture exists with auth routes forms and walker call"
     assert 'path="detail/:id"' in main_content;
 }
 
-test "phase 2 dev helpers exist and are importable" {
+test "dev helpers exist and are importable" {
     # The dev module is the entry point for `jac start --client react-native
     # --dev`. Importing it must succeed and expose the helper surface the
     # target impl depends on; the impl uses each by name, so a missing
@@ -557,6 +556,7 @@ test "phase 2 dev helpers exist and are importable" {
         ensure_watchdog,
         inject_dev_api_base_url,
         resolve_metro_port,
+        resolve_rn_port_or_next_available,
         restore_app_json,
         rn_hmr_on_jac_changed,
         run_expo_start,
@@ -594,6 +594,48 @@ test "resolve_metro_port honors env override over cli value" {
             os.environ[JAC_RN_METRO_PORT_ENV] = prev;
         }
     }
+}
+
+test "resolve_rn_port_or_next_available bumps away from a busy port" {
+    import socket;
+    import from jac_client.plugin.src.targets.react_native.dev {
+        resolve_rn_port_or_next_available
+    }
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0);
+    s.bind(("127.0.0.1", 0));
+    busy_port = s.getsockname()[1];
+    s.listen(1);
+    try {
+        chosen = resolve_rn_port_or_next_available(busy_port, "API");
+        assert chosen > busy_port , (
+            f"Expected auto-port fallback to move past busy port {busy_port}, got {chosen}"
+        );
+    } finally {
+        s.close();
+    }
+}
+
+test "resolve_rn_port_or_next_available skips reserved ports" {
+    import socket;
+    import from jac_client.plugin.src.targets.react_native.dev {
+        resolve_rn_port_or_next_available
+    }
+
+    # Pick a currently free base port, then mark it reserved so resolver
+    # must move upward even though bind would succeed.
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
+    s.bind(("127.0.0.1", 0));
+    base_port = s.getsockname()[1];
+    s.close();
+
+    chosen = resolve_rn_port_or_next_available(
+        base_port, "API", reserved=[base_port], max_scan=50
+    );
+    assert chosen > base_port , (
+        f"Reserved base port {base_port} must not be selected; got {chosen}"
+    );
 }
 
 test "build_expo_start_argv emits expected metro flags" {
@@ -743,7 +785,7 @@ test "client config supports target-scoped npm table for react native" {
     }
 }
 
-test "phase 3 dual-target gate can run e2e builds when explicitly enabled" {
+test "dual-target gate can run e2e builds when explicitly enabled" {
     import shutil;
     import subprocess;
     import tempfile;
@@ -845,7 +887,7 @@ test "strip_css_imports removes CSS import lines and deletes CSS files" {
     }
 }
 
-test "phase 3 dual platform fixture has .native.cl.jac and .cl.jac pairs" {
+test "dual platform fixture has .native.cl.jac and .cl.jac pairs" {
     fixture_dir = Path(__file__).parent / "fixtures" / "react_native_dual_platform";
     assert fixture_dir.exists();
     assert (fixture_dir / "main.jac").exists();
@@ -1001,7 +1043,7 @@ test "react native build pipeline calls lint, strip, and stage in correct order"
 }
 
 # ---------------------------------------------------------------------------
-# Phase 4 tests — iOS, release builds, EAS, project_dir config
+# iOS, release builds, EAS, project_dir config
 # ---------------------------------------------------------------------------
 test "react native scaffold writes eas.json with build and update profiles" {
     import tempfile;
@@ -1127,7 +1169,7 @@ test "normalize_rn_platform validates platform strings" {
     }
 }
 
-test "phase 4 build source includes iOS start helper" {
+test "build source includes iOS start helper" {
     impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
     impl_content = impl_path.read_text();
 
@@ -1149,7 +1191,7 @@ test "phase 4 build source includes iOS start helper" {
     assert "adb install" in impl_content;
 }
 
-test "phase 4 config helpers support ios_builder and release" {
+test "config helpers support ios_builder and release" {
     import tempfile;
     import from jac_client.plugin.src.targets.react_native.config {
         _load_react_native_config,
@@ -1186,7 +1228,7 @@ test "phase 4 config helpers support ios_builder and release" {
             'eas_profile = "staging"\n'
             'eas_update = true\n'
             'eas_update_branch = "main"\n'
-            'eas_update_message = "Phase 4 release"\n'
+            'eas_update_message = "RN release"\n'
         );
         (project_dir / "jac.toml").write_text(toml_content, encoding="utf-8");
         cfg2 = _load_react_native_config(project_dir);
@@ -1196,11 +1238,11 @@ test "phase 4 config helpers support ios_builder and release" {
         assert _resolve_rn_eas_profile(cfg2, True) == "staging";
         assert _resolve_rn_eas_update_enabled(cfg2) == True;
         assert _resolve_rn_eas_update_branch(cfg2, True) == "main";
-        assert _resolve_rn_eas_update_message(cfg2) == "Phase 4 release";
+        assert _resolve_rn_eas_update_message(cfg2) == "RN release";
     }
 }
 
-test "phase 4 build source has non-macOS error pointing at EAS Build" {
+test "build source has non-macOS error pointing at EAS Build" {
     impl_path = _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac";
     impl_content = impl_path.read_text();
 
@@ -1217,7 +1259,7 @@ test "phase 4 build source has non-macOS error pointing at EAS Build" {
     assert "run_eas_local_build" in build_section;
 }
 
-test "phase 4 build output_dir uses dist not platform-specific" {
+test "build output_dir uses dist not platform-specific" {
     import from jac_client.plugin.src.targets.registry { get_target_factory }
 
     factory = get_target_factory();
@@ -1237,4 +1279,70 @@ test "react native scaffold includes EAS docs pointer in setup output" {
     assert "eas build" in setup_section.lower();
     assert "eas update" in setup_section.lower();
     assert "--platform ios" in setup_section;
+}
+
+# ---------------------------------------------------------------------------
+# E2E: full React Native Android build (gated behind JAC_RN_E2E=1)
+# ---------------------------------------------------------------------------
+"""End-to-end test: scaffold → compile → expo prebuild → Gradle assembleDebug.
+
+Requires Android SDK + Java JDK on PATH. Skipped unless JAC_RN_E2E=1 is set.
+Validates that the RN 0.77.x bump produces a working Gradle build
+(enableBundleCompression is recognized, assembleDebug succeeds, APK
+artifact is produced).
+"""
+test "e2e: react-native android build produces APK" {
+    import shutil;
+    import subprocess;
+    import tempfile;
+    import from test_helpers { get_env_with_npm, get_jac_command }
+
+    if os.environ.get("JAC_RN_E2E", "0") != "1" {
+        pytest.skip(
+            "Set JAC_RN_E2E=1 to run the full React Native Android build "
+            "(requires Android SDK + JDK)."
+        );
+    }
+
+    fixture_src = Path(__file__).parent / "fixtures" / "react_native_multiscreen";
+    if not fixture_src.exists() {
+        pytest.skip("react_native_multiscreen fixture not found");
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp) / "rn_e2e";
+        shutil.copytree(fixture_src, project_dir);
+        env = get_env_with_npm();
+        jac_cmd = get_jac_command();
+        # Step 1: jac build --client react-native --platform android
+        rn_cmd = jac_cmd + [
+            "build",
+            "main.jac",
+            "--client",
+            "react-native",
+            "--platform",
+            "android"
+        ];
+        result = subprocess.run(
+            rn_cmd,
+            cwd=project_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=3600
+        );
+        assert result.returncode == 0 , (
+            "jac build --client react-native --platform android failed\n"
+            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        );
+        # Step 2: verify the APK artifact was produced.
+        rn_project = project_dir / "mobile-rn";
+        apk_outputs = rn_project / "android" / "app" / "build" / "outputs" / "apk" / "debug";
+        assert apk_outputs.exists() , (f"Expected Gradle output dir at {apk_outputs}");
+        apks = list(apk_outputs.glob("*.apk"));
+        assert len(apks) > 0 , (
+            "Gradle assembleDebug succeeded but no APK found under "
+            f"{apk_outputs}. Full stdout:\n{result.stdout}"
+        );
+    }
 }

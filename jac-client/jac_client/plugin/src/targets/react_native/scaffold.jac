@@ -95,7 +95,7 @@ def _write_if_managed(
 
 """Build the package.json contents pinned to known-good versions."""
 def _build_package_json(app_slug: str) -> str {
-    # Versions: Expo SDK 53 ships RN 0.76.x + React 18.3.x + Hermes default.
+    # Versions: Expo SDK 53 + RN 0.76.x + React 18.3.x + Hermes default.
     # `expo install` would normally resolve these; pinning here means
     # `jac setup react-native` works offline once the packages are cached.
     pkg = {
@@ -161,7 +161,7 @@ def _build_app_json(app_slug: str, app_id: str, app_name: str) -> str {
 def _build_metro_config(compiled_dir_rel: str) -> str {
     # Metro reads modules in the project dir by default; we ALSO want it to
     # watch the Jac-compiled JS in ``.jac/client/compiled/`` so saves
-    # trigger Fast Refresh in Phase 2 without copying files around.
+    # trigger Fast Refresh without copying files around.
     # ``extraNodeModules`` is the canonical Metro hook for aliasing —
     # babel-plugin-module-resolver works too but adds another build step.
     return (
@@ -175,7 +175,7 @@ def _build_metro_config(compiled_dir_rel: str) -> str {
         "const config = getDefaultConfig(projectRoot);\n"
         "\n"
         "// Watch the Jac-compiled JS bundle so edits to .cl.jac files\n"
-        "// trigger Metro Fast Refresh once `jac start --dev` (Phase 2) is wired up.\n"
+        "// trigger Metro Fast Refresh once `jac start --dev` is wired up.\n"
         "config.watchFolders = [...(config.watchFolders || []), compiledDir];\n"
         "\n"
         "// Alias `@jac/runtime` -> compiled/client_runtime.js so the bundle's\n"
@@ -294,7 +294,7 @@ def _build_placeholder_jac_app -> str {
 }
 
 def _build_eas_json -> str {
-    # Phase 4 (EAS Build + Update). The scaffold writes a baseline eas.json
+    # EAS Build + Update. The scaffold writes a baseline eas.json
     # with two profiles (preview / production) so ``eas build`` and
     # ``eas update`` work immediately. Authors customise this file in-place.
     cfg = {

@@ -1,4 +1,4 @@
-"""React Native build orchestration for Phase 1-4 target flows.
+"""React Native build orchestration for native target flows.
 
 End-to-end flow (platform-specific):
 
@@ -22,8 +22,7 @@ End-to-end flow (platform-specific):
 
     5. Locate and return the produced artifact path.
 
-Phase 2 (Fast Refresh dev loop) layers on top of this. The low-level helpers
-live here so target impl can stay orchestration-only.
+Fast Refresh uses the same helpers, so the target implementation can stay orchestration-only.
 """
 
 import shutil;
@@ -39,10 +38,8 @@ import from jac_client.plugin.src.targets.react_native.common {
     resolve_npx
 }
 
-# Tag map (D10) — duplicated from impl/client_runtime_native.impl.jac
-# specifically for the compile-time lint pass. Single source of truth would
-# be nicer; an internal-API JSON file in `defaults/` is the eventual
-# plan, but Phase 1 ships with the duplication to avoid drag.
+# Tag map (D10) — keep this list aligned with the native renderer so the
+# compile-time lint pass matches runtime behavior.
 glob _SUPPORTED_HTML_TAGS = {"div","section","main","article","header","footer","nav","aside","ul","ol","li","form","span","p","h1","h2","h3","h4","h5","h6","label","strong","em","small","button","input","textarea","img","a"},
      _RUNTIME_JS_FILES = {"client_runtime.js","pwa_runtime.js"},
      _WEB_ONLY_GLOBALS = ["window", "document", "localStorage"],
@@ -297,14 +294,14 @@ def lint_unmapped_tags(compiled_dir: Path) -> list[str] {
             "    These render as <View> with a red dashed border in dev. "
             "Replace with a React Native primitive (View/Text/Pressable/"
             "TextInput/Image) or a .native.cl.jac override. See D10 in "
-            "REACT_NATIVE_ARCHITECTURE.md.",
+            "docs/REACT_NATIVE_ARCHITECTURE.md.",
             style="muted"
         );
     }
     return unmapped;
 }
 
-"""Warn on web-only patterns in RN bundles (Phase 3 DX checks).
+"""Warn on web-only patterns in RN bundles.
 
 Two non-fatal checks:
   1. CSS imports (RN ignores CSS files; use inline ``style={{...}}`` or
@@ -511,6 +508,50 @@ def run_expo_prebuild(rn_dir: Path, platform: str = "android") -> None {
     console.print(f"  Running expo prebuild: {' '.join(cmd)}", style="muted");
     subprocess.run(cmd, cwd=rn_dir, check=True, capture_output=False);
     console.print("  ✔ Expo prebuild complete", style="success");
+
+    # Expo SDK 53's prebuild template emits `enableBundleCompression` in
+    # app/build.gradle, but this property was only added to the React
+    # Native Gradle plugin in 0.79 (which requires React 19). On RN 0.76.x
+    # the property causes "Could not set unknown property" at Gradle eval
+    # time. Strip it so the build works across supported RN versions.
+    _patch_gradle_enable_bundle_compression(rn_dir, plat);
+}
+
+"""Strip unsupported Gradle properties from the expo prebuild template.
+
+Expo SDK 53 generates ``enableBundleCompression`` in the ``react {}`` block
+of ``app/build.gradle``, but this property was only added to the React
+Native Gradle plugin in 0.79 (which requires React 19). On RN 0.76.x
+the unknown property causes Gradle evaluation to fail. This helper
+removes the line so the build works across supported RN versions.
+
+No-op if the property is not present (e.g. RN >= 0.79 or a future Expo
+template that drops it).
+"""
+def _patch_gradle_enable_bundle_compression(rn_dir: Path, platform: str) -> None {
+    import re;
+
+    if platform == "android" {
+        gradle_path = rn_dir / "android" / "app" / "build.gradle";
+    } elif platform == "ios" {
+        # iOS doesn't use Gradle; nothing to patch.
+        return;
+    } else {
+        return;
+    }
+    if not gradle_path.exists() {
+        return;
+    }
+    text = gradle_path.read_text(encoding="utf-8");
+    pattern = re.compile(r"^\s*enableBundleCompression\s*=.*$", re.MULTILINE);
+    new_text = pattern.sub("", text);
+    if new_text != text {
+        gradle_path.write_text(new_text, encoding="utf-8");
+        console.print(
+            "  ✔ Patched app/build.gradle (removed unsupported enableBundleCompression)",
+            style="success"
+        );
+    }
 }
 
 """Run Android Gradle assemble and return the produced APK/AAB path.
