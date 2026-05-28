@@ -8,7 +8,7 @@ import from jaclang.cli.console { console }
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-# Defaults mirror REACT_NATIVE_ARCHITECTURE.md decisions D7, D8, D11. Pinned
+# Defaults mirror the documented React Native target decisions in docs/REACT_NATIVE_ARCHITECTURE.md. Pinned
 # versions guard against silent upstream drift breaking the scaffold; bump
 # explicitly with a smoke test, not implicitly via "@latest".
 glob DEFAULT_PROJECT_DIR_NAME = "mobile-rn",
@@ -16,7 +16,7 @@ glob DEFAULT_PROJECT_DIR_NAME = "mobile-rn",
      DEFAULT_APP_SLUG = "jac-app",
      DEFAULT_APP_ID = "com.jac.app",
      EXPO_SDK_VERSION = "53",
-     REACT_NATIVE_VERSION = "0.76.6",
+     REACT_NATIVE_VERSION = "0.79.6",
      SUBPROCESS_TIMEOUT_BUILD: int = 1200;
 
 # Mirrors Capacitor target's install-tool detection. We accept either npm

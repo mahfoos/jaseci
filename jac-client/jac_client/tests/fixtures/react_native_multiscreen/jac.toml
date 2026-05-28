@@ -1,7 +1,7 @@
 [project]
 name = "react_native_multiscreen"
 version = "1.0.0"
-description = "Phase 3 RN fixture: login -> home -> detail"
+description = "RN fixture: login -> home -> detail"
 entry-point = "main.jac"
 
 [dependencies.npm]

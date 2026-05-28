@@ -326,19 +326,34 @@ def _extract_jac_preamble(js_code: str) -> str {
     return '';
 }
 
-"""Drop imports, ``_jac`` preamble, and export from a compiled runtime module."""
+"""Drop imports, ``_jac`` preamble, and export from a compiled runtime module.
+
+Important: keep *all* remaining top-level runtime declarations (``let``/``const``)
+because native runtime helpers rely on them (e.g. tag maps and prop adapters).
+Older logic sliced from the first ``function`` token and accidentally discarded
+those declarations.
+"""
 def _extract_function_bodies(js_code: str) -> str {
     stripped = _strip_esm_export_line(js_code);
-    marker = '\nfunction ';
-    idx = stripped.find(marker);
-    if idx < 0 {
-        marker = '\nasync function ';
-        idx = stripped.find(marker);
+
+    # Remove all ESM imports; runtime imports are merged separately.
+    body_lines: list[str] = [];
+    for line in stripped.split('\n') {
+        if line.strip().startswith('import ') {
+            continue;
+        }
+        body_lines.append(line);
     }
-    if idx < 0 {
-        return stripped;
+    body = '\n'.join(body_lines);
+
+    # Remove the Jac helper preamble from the body; we include exactly one
+    # preamble via `_bundle_runtime_js`.
+    jac_preamble = _extract_jac_preamble(body);
+    if jac_preamble {
+        body = body.replace(jac_preamble, '', 1);
     }
-    return stripped[idx + 1:];
+
+    return body;
 }
 
 """Merge import lines from two modules, dropping core cross-imports."""

@@ -1,7 +1,7 @@
 """React Native target config helpers.
 
 Loads ``[plugins.client.react_native]`` from jac.toml and normalizes the
-Phase 4 knobs:
+Config knobs:
   - ``release`` (debug vs release builds)
   - ``android_builder`` / ``ios_builder`` (gradle|xcodebuild|eas)
   - ``eas_profile`` (local EAS build profile)
@@ -9,8 +9,8 @@ Phase 4 knobs:
 """
 import from pathlib { Path }
 
-glob _RN_BUILDERS_ANDROID = {"gradle","eas"},
-     _RN_BUILDERS_IOS = {"xcodebuild","eas"};
+glob _RN_BUILDERS_ANDROID = {"gradle", "eas"},
+     _RN_BUILDERS_IOS = {"xcodebuild", "eas"};
 
 """Load ``[plugins.client.react_native]`` from jac.toml."""
 def _load_react_native_config(project_dir: Path) -> dict {
@@ -39,10 +39,10 @@ def _to_bool(value: any, fallback: bool = False) -> bool {
         return value != 0;
     }
     txt = str(value).strip().lower();
-    if txt in {"1","true","yes","y","on"} {
+    if txt in {"1", "true", "yes", "y", "on"} {
         return True;
     }
-    if txt in {"0","false","no","n","off"} {
+    if txt in {"0", "false", "no", "n", "off"} {
         return False;
     }
     return fallback;

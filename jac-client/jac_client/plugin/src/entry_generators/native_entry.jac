@@ -12,9 +12,9 @@ The generator self-registers under the ``native`` key in
 ``react_native_target.jac`` triggers this import, which guarantees the
 generator is wired before any ``jac build --client react-native`` call.
 
-This is a Phase 1 skeleton: the body matches what the Phase 0 spike's
-``index.ts`` does today, minus error-boundary wiring (we'll add an RN
-``ErrorBoundary`` adapter alongside the native runtime split — D9).
+This generator mirrors the Expo root shell used by the native scaffold.
+The error-boundary wiring lives in the native runtime, so the entry stays
+small and target-specific.
 """
 
 import from jaclang.runtimelib.entry_generators { register_entry_generator }

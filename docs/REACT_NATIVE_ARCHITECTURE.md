@@ -436,14 +436,16 @@ before committing to the target implementation.
 
 **What:**
 
-- New `jac-client/spikes/react-native/` (gitignored if needed) containing:
+- Temporary `jac-client/spikes/react-native/` validation scaffold (deleted
+  after the target landed) containing:
   - Fresh Expo project (`npx create-expo-app --template blank-typescript`).
   - A copied `.jac/client/compiled/` from the `basic-app` fixture.
   - A hand-written `native_runtime.ts` implementing the renderer with tag map.
   - Metro config with `watchFolders` pointing at the compiled dir and resolver
     that maps `@jac/runtime` → `./native_runtime.ts`.
   - One screen rendering Jac-compiled JSX + one walker call.
-- Document what worked, what broke, what surprised us in `spikes/README.md`.
+- Findings were captured in this architecture record rather than a checked-in
+  `spikes/README.md`.
 
 **Acceptance / go-no-go:**
 

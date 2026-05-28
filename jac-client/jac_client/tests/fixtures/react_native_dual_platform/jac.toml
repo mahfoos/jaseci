@@ -1,7 +1,7 @@
 [project]
 name = "react_native_dual_platform"
 version = "1.0.0"
-description = "Phase 3 fixture: .cl.jac + .native.cl.jac platform-specific files"
+description = "Fixture: .cl.jac + .native.cl.jac platform-specific files"
 entry-point = "main.jac"
 
 [dependencies.npm]

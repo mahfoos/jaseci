@@ -8,7 +8,7 @@ const compiledDir = path.resolve(projectRoot, '../.jac/client/compiled');
 const config = getDefaultConfig(projectRoot);
 
 // Watch the Jac-compiled JS bundle so edits to .cl.jac files
-// trigger Metro Fast Refresh once `jac start --dev` (Phase 2) is wired up.
+// trigger Metro Fast Refresh once `jac start --dev` is wired up.
 config.watchFolders = [...(config.watchFolders || []), compiledDir];
 
 // Alias `@jac/runtime` -> compiled/client_runtime.js so the bundle's

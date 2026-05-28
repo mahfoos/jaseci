@@ -21,8 +21,8 @@ import from jac_client.plugin.src.entry_generators.native_entry {
 
 Mirrors ``_MobileHmrHandler`` in ``mobile_target.jac`` — the watchdog
 callback needs a stable ``on_event(evt)`` method, and Jac watchers expect
-a callable, so we shape the closure as an object with bound state. Phase
-2 (Fast Refresh) instantiates this from ``ReactNativeTarget.dev`` and
+a callable, so we shape the closure as an object with bound state.
+``ReactNativeTarget.dev`` instantiates this from its watcher callback and
 hands the bound ``on_event`` to ``JacFileWatcher.add_callback``.
 """
 obj _RNHmrHandler {
@@ -37,14 +37,13 @@ obj _RNHmrHandler {
 
 """React Native build target (Expo + Metro + Hermes + New Architecture).
 
-The defaults mirror decisions D7/D8/D11 from the architecture doc:
+The defaults mirror the documented Expo / Hermes / project-dir choices:
   * Expo (not bare RN) — `requires_setup = True`, scaffold lives in
     ``mobile-rn/`` so it doesn't collide with the Capacitor ``android/`` and
     ``ios/`` directories (D11).
-  * Production stack from day one: Hermes, New Architecture, secure-store
-    (wired in later Phase 1 PRs).
-  * Output directory is platform-specific Android debug output until iOS
-    lands in Phase 4.
+  * Production stack from day one: Hermes, New Architecture, secure-store.
+  * Output directory points at ``mobile-rn/dist`` to keep native artifacts
+    isolated from the scaffold.
 """
 obj ReactNativeTarget(ClientTarget) {
     has name: str = "react-native",
@@ -56,7 +55,7 @@ obj ReactNativeTarget(ClientTarget) {
     """Setup the Expo project scaffold under ``mobile-rn/``."""
     override def setup(project_dir: Path) -> None;
 
-    """Build a debug APK/IPA (Phase 1-4) or release artifact."""
+    """Build a debug APK/IPA or release artifact."""
     override def build(
         entry_file: Path, project_dir: Path, platform: Optional[str] = None
     ) -> Path;

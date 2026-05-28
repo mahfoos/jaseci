@@ -1,6 +1,6 @@
 # React Native Multiscreen Fixture
 
-Phase 3 fixture for `--client web` and `--client react-native` parity checks.
+Fixture for `--client web` and `--client react-native` parity checks.
 
 Coverage surface:
 

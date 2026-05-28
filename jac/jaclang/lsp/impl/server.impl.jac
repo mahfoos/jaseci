@@ -448,7 +448,7 @@ impl LanguageServer.start_io -> None {
 
             # Call handler (sync or async)
             try {
-                if asyncio.iscoroutinefunction(handler) {
+                if inspect.iscoroutinefunction(handler) {
                     result = loop.run_until_complete(handler(self, typed_params));
                 } else {
                     result = handler(self, typed_params);

@@ -1,7 +1,7 @@
 # React Native runtime (D9). Shared logic lives in client_runtime_core.
 impl __jacWirePlatformAdapters -> None {
     globalThis.__jacGetRenderer__ = __jacGetRenderer;
-    globalThis.__jacGetApiBaseUrl__ = __jacGetApiBaseUrl;
+    globalThis.__jacGetApiBaseUrl__ = __getApiBaseUrl;
     globalThis.__jacGetLocalStorage__ = __getLocalStorage;
     globalThis.__jacSetLocalStorage__ = __setLocalStorage;
     globalThis.__jacRemoveLocalStorage__ = __removeLocalStorage;
@@ -25,39 +25,6 @@ impl __jacGetRenderer -> any {
     }
     return globalThis.__jacRenderer__;
 }
-
-glob _VIEW_TAGS = [
-         "div",
-         "section",
-         "main",
-         "article",
-         "header",
-         "footer",
-         "nav",
-         "aside",
-         "ul",
-         "ol",
-         "li",
-         "form"
-     ],
-     _TEXT_TAGS = [
-         "span",
-         "p",
-         "h1",
-         "h2",
-         "h3",
-         "h4",
-         "h5",
-         "h6",
-         "label",
-         "strong",
-         "em",
-         "small"
-     ],
-     _UNMAPPED_WARNED = {},
-     _RELATIVE_IMG_SRC_WARNED = {},
-     _JAC_NATIVE_OUTLET_CONTEXT = React.createContext(None),
-     _JAC_NATIVE_STACK = jacCreateNativeStackNavigator();
 
 impl __jacNativeCreate(tag: any, props: dict = {}, children: any = []) -> JsxElement {
     if tag == None {
@@ -143,7 +110,7 @@ impl __jacNativeCreate(tag: any, props: dict = {}, children: any = []) -> JsxEle
     return React.createElement.apply(React, args);
 }
 
-def _adaptProps(tag: str, props: dict) -> dict {
+impl _adaptProps(tag: str, props: dict) -> dict {
     if not props {
         return {};
     }
@@ -179,7 +146,7 @@ def _adaptProps(tag: str, props: dict) -> dict {
     return out;
 }
 
-def _isAbsoluteImageUri(src: str) -> bool {
+impl _isAbsoluteImageUri(src: str) -> bool {
     lower = src.lower();
     return (
         lower.startswith("http://")
@@ -191,7 +158,7 @@ def _isAbsoluteImageUri(src: str) -> bool {
     );
 }
 
-def _adaptImageProps(props: dict) -> dict {
+impl _adaptImageProps(props: dict) -> dict {
     out = Object.assign({}, props or {});
     src = out["src"] if out["src"] else None;
     if out["alt"] and not out["accessibilityLabel"] {
@@ -210,8 +177,9 @@ def _adaptImageProps(props: dict) -> dict {
                 if not _RELATIVE_IMG_SRC_WARNED[uri] {
                     _RELATIVE_IMG_SRC_WARNED[uri] = True;
                     console.warn(
-                        "[jac-native-runtime] Missing Metro asset mapping "
-                        f"for token '{uri}'. Re-run `jac build --client react-native`."
+                        "[jac-native-runtime] Missing Metro asset mapping for token " + str(
+                            uri
+                        ) + ". Re-run jac build --client react-native."
                     );
                 }
                 out["source"] = {"uri": uri};
@@ -225,10 +193,7 @@ def _adaptImageProps(props: dict) -> dict {
                 if not _RELATIVE_IMG_SRC_WARNED[uri] {
                     _RELATIVE_IMG_SRC_WARNED[uri] = True;
                     console.warn(
-                        "[jac-native-runtime] Relative <img src> path "
-                        f"'{uri}' cannot be bundled reliably on React Native. "
-                        "Use imported assets, `/static/...` URLs, absolute URLs, "
-                        "or pass `source={{uri: ...}}`."
+                        "[jac-native-runtime] Relative <img src> path " + str(uri) + " cannot be bundled reliably on React Native. " + "Use imported assets, /static/... URLs, absolute URLs, " + "or pass source={{uri: ...}}."
                     );
                 }
                 out["source"] = {"uri": uri};
@@ -246,7 +211,7 @@ def _adaptImageProps(props: dict) -> dict {
     return out;
 }
 
-def _prepend_args(comp: any, props: any, children: list) -> list {
+impl _prepend_args(comp: any, props: any, children: list) -> list {
     args = [comp, props];
     for child in children {
         args.append(child);
@@ -254,7 +219,7 @@ def _prepend_args(comp: any, props: any, children: list) -> list {
     return args;
 }
 
-def _makeNativeLink(props: dict, children: list) -> JsxElement {
+impl _makeNativeLink(props: dict, children: list) -> JsxElement {
     href = props["href"] if props["href"] else None;
     rest = Object.assign({}, props);
     if rest["href"] {
@@ -272,7 +237,7 @@ def _makeNativeLink(props: dict, children: list) -> JsxElement {
     return React.createElement.apply(React, args);
 }
 
-def _toChildrenArray(children: any) -> list {
+impl _toChildrenArray(children: any) -> list {
     if children == None or children == undefined {
         return [];
     }
@@ -282,7 +247,7 @@ def _toChildrenArray(children: any) -> list {
     return [children];
 }
 
-def _normalizeRoutePath(path: str) -> str {
+impl _normalizeRoutePath(path: str) -> str {
     text = str(path or "").strip();
     if text == "" {
         return "/";
@@ -296,7 +261,7 @@ def _normalizeRoutePath(path: str) -> str {
     return text;
 }
 
-def _joinRoutePath(parent_path: str, child_path: str) -> str {
+impl _joinRoutePath(parent_path: str, child_path: str) -> str {
     child = str(child_path or "");
     if child == "" {
         return _normalizeRoutePath(parent_path);
@@ -311,7 +276,7 @@ def _joinRoutePath(parent_path: str, child_path: str) -> str {
     return _normalizeRoutePath(base + "/" + child);
 }
 
-def _splitRouteParts(path: str) -> list[str] {
+impl _splitRouteParts(path: str) -> list[str] {
     text = _normalizeRoutePath(path);
     if text == "/" {
         return [];
@@ -325,7 +290,7 @@ def _splitRouteParts(path: str) -> list[str] {
     return parts;
 }
 
-def _buildRouteName(path: str, ordinal: int) -> str {
+impl _buildRouteName(path: str, ordinal: int) -> str {
     normalized = _normalizeRoutePath(path);
     if normalized == "/" {
         return "root";
@@ -339,7 +304,7 @@ def _buildRouteName(path: str, ordinal: int) -> str {
     return "_".join(safe_parts + [str(ordinal)]);
 }
 
-def _cacheNativeRoutes(route_defs: list) {
+impl _cacheNativeRoutes(route_defs: list) {
     slim = [];
     for route in route_defs {
         slim.append({"name": route["name"], "path": route["path"]});
@@ -347,7 +312,7 @@ def _cacheNativeRoutes(route_defs: list) {
     globalThis.__jacNativeRouteDefs__ = slim;
 }
 
-def _getNativeRoutes -> list {
+impl _getNativeRoutes -> list {
     routes = globalThis.__jacNativeRouteDefs__;
     if routes and Array.isArray(routes) {
         return routes;
@@ -355,7 +320,7 @@ def _getNativeRoutes -> list {
     return [];
 }
 
-def _matchRoutePattern(pattern_path: str, actual_path: str) -> (dict | None) {
+impl _matchRoutePattern(pattern_path: str, actual_path: str) -> (dict | None) {
     pattern_parts = _splitRouteParts(pattern_path);
     actual_parts = _splitRouteParts(actual_path);
     if len(pattern_parts) != len(actual_parts) {
@@ -375,7 +340,7 @@ def _matchRoutePattern(pattern_path: str, actual_path: str) -> (dict | None) {
     return params;
 }
 
-def _lookupRouteByPath(path: str) -> (dict | None) {
+impl _lookupRouteByPath(path: str) -> (dict | None) {
     normalized = _normalizeRoutePath(path);
     for route in _getNativeRoutes() {
         if route["path"] == normalized {
@@ -391,7 +356,7 @@ def _lookupRouteByPath(path: str) -> (dict | None) {
     return None;
 }
 
-def _lookupRouteByName(name: str) -> (dict | None) {
+impl _lookupRouteByName(name: str) -> (dict | None) {
     for route in _getNativeRoutes() {
         if route["name"] == name {
             return route;
@@ -400,7 +365,7 @@ def _lookupRouteByName(name: str) -> (dict | None) {
     return None;
 }
 
-def _hydratePath(pattern_path: str, params: any) -> str {
+impl _hydratePath(pattern_path: str, params: any) -> str {
     parts = _splitRouteParts(pattern_path);
     hydrated = [];
     for part in parts {
@@ -415,7 +380,7 @@ def _hydratePath(pattern_path: str, params: any) -> str {
     return _normalizeRoutePath("/" + "/".join(hydrated));
 }
 
-def _stripMetaParams(params: any) -> dict {
+impl _stripMetaParams(params: any) -> dict {
     result = {};
     if not params {
         return result;
@@ -429,7 +394,7 @@ def _stripMetaParams(params: any) -> dict {
     return result;
 }
 
-def _performNavigation(nav: any, target: any, options: dict = {}) -> None {
+impl _performNavigation(nav: any, target: any, options: dict = {}) -> None {
     if nav == None {
         console.warn("[jac-native-runtime] navigation is unavailable.");
         return;
@@ -492,7 +457,7 @@ def _performNavigation(nav: any, target: any, options: dict = {}) -> None {
     nav.navigate(route_match["name"], params);
 }
 
-def _collectNativeRoutes(
+impl _collectNativeRoutes(
     children: any, parent_path: str, wrappers: list, out_routes: list
 ) {
     for child in _toChildrenArray(children) {
@@ -531,7 +496,7 @@ def _collectNativeRoutes(
     }
 }
 
-def _makeNativeRouteScreen(route: dict) -> any {
+impl _makeNativeRouteScreen(route: dict) -> any {
     wrappers = route["wrappers"] if route["wrappers"] else [];
     element = route["element"]
         if route["element"]

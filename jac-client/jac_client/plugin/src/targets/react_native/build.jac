@@ -40,8 +40,38 @@ import from jac_client.plugin.src.targets.react_native.common {
 
 # Tag map (D10) — keep this list aligned with the native renderer so the
 # compile-time lint pass matches runtime behavior.
-glob _SUPPORTED_HTML_TAGS = {"div","section","main","article","header","footer","nav","aside","ul","ol","li","form","span","p","h1","h2","h3","h4","h5","h6","label","strong","em","small","button","input","textarea","img","a"},
-     _RUNTIME_JS_FILES = {"client_runtime.js","pwa_runtime.js"},
+glob _SUPPORTED_HTML_TAGS = {
+         "div",
+         "section",
+         "main",
+         "article",
+         "header",
+         "footer",
+         "nav",
+         "aside",
+         "ul",
+         "ol",
+         "li",
+         "form",
+         "span",
+         "p",
+         "h1",
+         "h2",
+         "h3",
+         "h4",
+         "h5",
+         "h6",
+         "label",
+         "strong",
+         "em",
+         "small",
+         "button",
+         "input",
+         "textarea",
+         "img",
+         "a"
+     },
+     _RUNTIME_JS_FILES = {"client_runtime.js", "pwa_runtime.js"},
      _WEB_ONLY_GLOBALS = ["window", "document", "localStorage"],
      _RN_ASSET_TOKEN_PREFIX = "__jac_rn_asset__:",
      _IMG_SRC_ALLOWED_PREFIXES = [
@@ -117,12 +147,21 @@ def write_native_entry(rn_dir: Path, entry_module: str) {
     console.print("  ✔ Wrote native entry (index.ts)", style="success");
 }
 
-"""Copy the compiled entry-module JS into the Expo project as ``jac-app.js``.
+"""Stage compiled Jac modules into Expo and generate ``jac-app.js`` bridge.
 
-App.tsx imports ``./jac-app`` (a normal relative import) which resolves to
-this file. Keeping the Jac-app artifact inside the Expo project root means
-Metro's default resolution finds it without us touching ``watchFolders``
-for the entry (only ``@jac/runtime`` needs to live outside).
+The compiled entry (``main.js``) often contains relative imports such as
+``./components/Button.js``. If we only copy the entry file, Metro resolves
+those paths relative to ``mobile-rn/`` and fails with:
+``Unable to resolve "./components/Button.js" from "jac-app.js"``.
+
+To keep module resolution deterministic, we copy the full compiled tree into
+``mobile-rn/jac-src/`` and emit a tiny bridge module:
+
+- ``mobile-rn/jac-app.js`` imports ``./jac-asset-registry``
+- then re-exports the app from ``./jac-src/<entry_module>.js``
+
+All relative imports stay intact inside ``jac-src/`` where the original
+compiled structure is preserved.
 """
 def stage_compiled_entry(compiled_dir: Path, rn_dir: Path, entry_module: str) -> Path {
     src = compiled_dir / f"{entry_module}.js";
@@ -132,19 +171,20 @@ def stage_compiled_entry(compiled_dir: Path, rn_dir: Path, entry_module: str) ->
             "succeed?"
         );
     }
+
+    staged_tree = rn_dir / "jac-src";
+    if staged_tree.exists() {
+        shutil.rmtree(staged_tree);
+    }
+    shutil.copytree(compiled_dir, staged_tree);
+
     dest = rn_dir / "jac-app.js";
-    shutil.copyfile(src, dest);
-    # Also stage source maps when present so RN dev tools symbolicate to the
-    # original Jac source paths.
-    src_map = compiled_dir / f"{entry_module}.js.map";
-    if src_map.exists() {
-        shutil.copyfile(src_map, rn_dir / "jac-app.js.map");
-    }
-    import_line = "import './jac-asset-registry';\n";
-    entry_text = dest.read_text(encoding="utf-8");
-    if import_line not in entry_text {
-        dest.write_text(import_line + entry_text, encoding="utf-8");
-    }
+    dest.write_text(
+        "import './jac-asset-registry';\n"
+        f"export {{ app }} from './jac-src/{entry_module}.js';\n",
+        encoding="utf-8"
+    );
+
     return dest;
 }
 
@@ -444,7 +484,7 @@ def strip_css_imports(compiled_dir: Path) -> int {
     css_import_pattern = re.compile(
         r"^import\s+['\"][^'\"]+\.(?:css|scss|sass|less)['\"]\s*;\s*$", re.MULTILINE
     );
-    css_asset_extensions = {".css",".scss",".sass",".less"};
+    css_asset_extensions = {".css", ".scss", ".sass", ".less"};
     stripped_total = 0;
     css_files_removed = 0;
 

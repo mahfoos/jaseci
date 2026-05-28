@@ -353,7 +353,7 @@ Internal callers should prefer `execute_function_sync` / `execute_function_async
 impl ExecutionManager.execute_function(
     func: Callable[(..., Any)], args: dict[(str, Any)], username: str
 ) -> dict[str, JsonValue] {
-    if asyncio.iscoroutinefunction(func) {
+    if inspect.iscoroutinefunction(func) {
         return await self.execute_function_async(func, args, username);
     }
     return await self.execute_function_sync(func, args, username);

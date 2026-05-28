@@ -1,4 +1,4 @@
-Phase 3 dual-platform fixture. Tests that:
+Dual-platform fixture. Tests that:
 
 1. `.native.cl.jac` files are picked by the compiler when `target_name="react-native"`
 2. `.cl.jac` files are used when `target_name="web"`

@@ -1,4 +1,4 @@
-"""Phase 3 fixture: dual-platform component resolution.
+"""Fixture: dual-platform component resolution.
 
 Demonstrates that a Jac app can provide .cl.jac (web) and .native.cl.jac
 (react-native) variants of the same component. The compiler picks the

@@ -1,4 +1,4 @@
-"""React Native Phase 3 multiscreen fixture (login -> home -> detail)."""
+"""React Native multiscreen fixture (login -> home -> detail)."""
 
 walker whoami {
     can execute with Root entry {

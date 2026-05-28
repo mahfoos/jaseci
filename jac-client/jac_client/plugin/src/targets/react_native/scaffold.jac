@@ -95,7 +95,7 @@ def _write_if_managed(
 
 """Build the package.json contents pinned to known-good versions."""
 def _build_package_json(app_slug: str) -> str {
-    # Versions: Expo SDK 53 + RN 0.76.x + React 18.3.x + Hermes default.
+    # Versions: Expo SDK 53 + RN 0.79.x + React 19.x + Hermes default.
     # `expo install` would normally resolve these; pinning here means
     # `jac setup react-native` works offline once the packages are cached.
     pkg = {
@@ -110,16 +110,21 @@ def _build_package_json(app_slug: str) -> str {
         },
         "dependencies": {
             "expo": f"~{EXPO_SDK_VERSION}.0.0",
-            "expo-constants": "~17.0.0",
-            "expo-secure-store": "~14.0.0",
-            "expo-status-bar": "~2.0.0",
-            "react": "18.3.1",
+            # Keep expo-asset explicit so prebuild/autolinking always
+            # materializes the ExpoAsset native module in Android/iOS.
+            # Relying on expo's transitive dep can trigger runtime
+            # "Cannot find native module 'ExpoAsset'" in fresh scaffolds.
+            "expo-asset": "~11.1.7",
+            "expo-constants": "~17.1.8",
+            "expo-secure-store": "~14.2.4",
+            "expo-status-bar": "~2.2.3",
+            "react": "19.0.0",
             "react-native": REACT_NATIVE_VERSION,
             "@react-navigation/native": "^7.1.14",
             "@react-navigation/native-stack": "^7.3.21",
-            "react-native-gesture-handler": "~2.20.2",
-            "react-native-safe-area-context": "5.6.0",
-            "react-native-screens": "~4.4.0",
+            "react-native-gesture-handler": "~2.24.0",
+            "react-native-safe-area-context": "5.4.0",
+            "react-native-screens": "~4.11.1",
             "react-error-boundary": "^4.1.2",
             "react-hook-form": "^7.54.0",
             "@hookform/resolvers": "^3.10.0",
@@ -127,8 +132,8 @@ def _build_package_json(app_slug: str) -> str {
         },
         "devDependencies": {
             "@babel/core": "^7.25.0",
-            "@types/react": "~18.3.0",
-            "typescript": "~5.3.0"
+            "@types/react": "~19.0.10",
+            "typescript": "~5.8.3"
         }
     };
     return json.dumps(pkg, indent=2) + "\n";

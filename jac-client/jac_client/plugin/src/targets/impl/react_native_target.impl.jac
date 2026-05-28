@@ -1,11 +1,11 @@
-"""Implementation of ReactNativeTarget lifecycle methods (Phase 1-4).
+"""Implementation of ReactNativeTarget lifecycle methods.
 
 `setup`  — scaffolds the Expo project under ``mobile-rn/`` and installs
             native deps (idempotent; safe to re-run).
 `build`  — JacClientCompiler(native runtime) -> stage compiled JS into
             mobile-rn/ -> expo prebuild -> platform build backend
             (Gradle/xcodebuild/EAS local). Returns the produced artifact.
-`dev`    — Phase 2 (Fast Refresh) loop over Metro + JacFileWatcher.
+`dev`    — Metro Fast Refresh loop over JacFileWatcher.
 `start`  — Wraps Android ``build`` + ``adb install`` + ``adb shell am start``.
 """
 
@@ -51,10 +51,10 @@ import from jac_client.plugin.src.targets.react_native.config {
 }
 import from jac_client.plugin.src.targets.react_native.dev {
     SUBPROCESS_TIMEOUT_SHORT as DEV_SUBPROCESS_TIMEOUT_SHORT,
-    assert_rn_port_available,
     ensure_watchdog as ensure_dev_watchdog,
     inject_dev_api_base_url,
     resolve_metro_port,
+    resolve_rn_port_or_next_available,
     restore_app_json,
     rn_hmr_on_jac_changed,
     run_expo_start,
@@ -64,7 +64,7 @@ import from jac_client.plugin.src.targets.react_native.dev {
 }
 import from jac_client.plugin.src.mobile_dev_host { detect_lan_ipv4 }
 
-glob _ROADMAP_URL = "REACT_NATIVE_ARCHITECTURE.md";
+glob _ROADMAP_URL = "docs/REACT_NATIVE_ARCHITECTURE.md";
 
 """Setup the Expo project scaffold and install native deps.
 
@@ -72,7 +72,7 @@ Idempotent: re-running picks up changes to the scaffold templates but
 leaves user-edited files (``app/App.tsx``, ``app.json``) alone — see
 ``_is_scaffold_managed`` in scaffold.jac for the marker-based detection.
 
-Phase 4 adds platform-aware messaging and EAS.json scaffolding.
+It also keeps the platform-aware messaging and EAS.json scaffolding in sync.
 """
 impl ReactNativeTarget.setup(project_dir: Path) -> None {
     import from jac_client.plugin.src.targets.react_native.common {
@@ -133,7 +133,7 @@ impl ReactNativeTarget.setup(project_dir: Path) -> None {
 
 """Build a React Native artifact (Android or iOS).
 
-Phase 4 adds:
+This method also handles:
   - iOS build path (`xcodebuild` on macOS or EAS local, opt-in)
   - release/debug switch via `[plugins.client.react_native].release`
   - optional EAS Update publish hook (`eas_update=true`)
@@ -288,16 +288,16 @@ impl ReactNativeTarget.build(
     return artifact;
 }
 
-"""Start the Metro dev loop with Fast Refresh — Phase 2.
+"""Start the Metro dev loop with Fast Refresh.
 
 Orchestration (Android-only for v1; iOS sim is best-effort once Metro is
 up because Expo's CLI handles both, but our adb-reverse + emulator-host
 defaults assume Android):
 
     1. Resolve dev host (env override > LAN IPv4 > 127.0.0.1).
-    2. Pick Metro port + API port; assert both free *before* mutating
-       any config (otherwise we'd leave app.json / adb-reverse pointing
-       at a port the API silently failed to bind).
+    2. Pick Metro port + API port; if either is busy, increment until we
+       find a free one so adb-reverse + app.json stay aligned with what
+       actually binds.
     3. Compile Jac → ``.jac/client/compiled/`` with the *native* runtime
        and stage the entry into ``mobile-rn/jac-app.js``.
     4. Inject the dev API URL into ``mobile-rn/app.json``'s
@@ -327,15 +327,17 @@ impl ReactNativeTarget.dev(
         );
     }
 
-    # Port resolution. `port` here mirrors core `jac start --dev --port`
-    # semantics: it's the *frontend* port (Metro) and api_port=0 means
-    # "use port + 1" — but on RN the frontend port that matters is Metro
-    # at 8081 by default, not the value the user passed in. We respect
-    # --port for the API and let Metro keep 8081 unless JAC_RN_METRO_PORT
-    # overrides; this matches the mental model "Metro is fixed, the API
-    # moves around" most RN devs already have.
-    api_eff = api_port if api_port > 0 else port;
-    metro_port = resolve_metro_port();
+    # Port resolution. In the react-native dev loop, `--port` is treated
+    # as the preferred API port. Metro keeps its own preferred port
+    # (8081 by default, or JAC_RN_METRO_PORT). If either preferred port is
+    # occupied we probe upward (+1, +2, ...) until we find free ports,
+    # keeping Metro/API distinct so adb reverse + app.json stay aligned.
+    requested_api = api_port if api_port > 0 else port;
+    requested_metro = resolve_metro_port();
+    metro_port = resolve_rn_port_or_next_available(requested_metro, "Metro");
+    api_eff = resolve_rn_port_or_next_available(
+        requested_api, "API", reserved=[metro_port]
+    );
 
     # Visible host: env override > LAN IPv4 > 127.0.0.1. Android emulators
     # use 10.0.2.2 to reach the host's localhost (the build-time injector
@@ -356,11 +358,6 @@ impl ReactNativeTarget.dev(
         f"\nReact Native dev (Expo + Metro Fast Refresh) — host {visible_host}",
         style="bold"
     );
-
-    assert_rn_port_available(metro_port, "Metro");
-    if api_eff != metro_port {
-        assert_rn_port_available(api_eff, "API");
-    }
 
     # Step 1: compile Jac + native runtime. Same path as `build` but no
     # Gradle / prebuild — Metro reads the compiled JS directly via the

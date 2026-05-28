@@ -381,6 +381,7 @@ test "react native scaffold writes Expo project files" {
         assert "@react-navigation/native" in pkg_content;
         assert "@react-navigation/native-stack" in pkg_content;
         assert "react-native-screens" in pkg_content;
+        assert "expo-asset" in pkg_content;
         assert "from '../jac-app'" in app_content;
         app_json = (rn_dir / "app.json").read_text();
         # D8: New Architecture + Hermes from day one.

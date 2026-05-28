@@ -35,16 +35,72 @@ def:pub __jacNativeCreate(
     tag: any, props: dict = {}, children: any = []
 ) -> JsxElement;
 
-glob:pub useState = reactUseState,
-     useEffect = reactUseEffect,
-     Router = __nativeRouter,
-     Routes = __nativeRoutes,
-     Route = __nativeRoute,
-     Link = __nativeLink,
-     Navigate = __nativeNavigate,
-     Outlet = __nativeOutlet,
-     JacClientErrorBoundary = ErrorBoundary,
-     JacSchema = __createJacSchema(z);
+glob _VIEW_TAGS = [
+         "div",
+         "section",
+         "main",
+         "article",
+         "header",
+         "footer",
+         "nav",
+         "aside",
+         "ul",
+         "ol",
+         "li",
+         "form"
+     ],
+     _TEXT_TAGS = [
+         "span",
+         "p",
+         "h1",
+         "h2",
+         "h3",
+         "h4",
+         "h5",
+         "h6",
+         "label",
+         "strong",
+         "em",
+         "small"
+     ],
+     _UNMAPPED_WARNED = {},
+     _RELATIVE_IMG_SRC_WARNED = {},
+     _JAC_NATIVE_OUTLET_CONTEXT = React.createContext(None),
+     _JAC_NATIVE_STACK = jacCreateNativeStackNavigator(),
+     useState:pub = reactUseState,
+     useEffect:pub = reactUseEffect,
+     Router:pub = __nativeRouter,
+     Routes:pub = __nativeRoutes,
+     Route:pub = __nativeRoute,
+     Link:pub = __nativeLink,
+     Navigate:pub = __nativeNavigate,
+     Outlet:pub = __nativeOutlet,
+     JacClientErrorBoundary:pub = ErrorBoundary,
+     JacSchema:pub = __createJacSchema(z);
+
+def _adaptProps(tag: str, props: dict) -> dict;
+def _isAbsoluteImageUri(src: str) -> bool;
+def _adaptImageProps(props: dict) -> dict;
+def _prepend_args(comp: any, props: any, children: list) -> list;
+def _makeNativeLink(props: dict, children: list) -> JsxElement;
+def _toChildrenArray(children: any) -> list;
+def _normalizeRoutePath(path: str) -> str;
+def _joinRoutePath(parent_path: str, child_path: str) -> str;
+def _splitRouteParts(path: str) -> list[str];
+def _buildRouteName(path: str, ordinal: int) -> str;
+def _cacheNativeRoutes(route_defs: list) -> None;
+def _getNativeRoutes -> list;
+def _matchRoutePattern(pattern_path: str, actual_path: str) -> (dict | None);
+def _lookupRouteByPath(path: str) -> (dict | None);
+def _lookupRouteByName(name: str) -> (dict | None);
+def _hydratePath(pattern_path: str, params: any) -> str;
+def _stripMetaParams(params: any) -> dict;
+def _performNavigation(nav: any, target: any, options: dict = {}) -> None;
+def _collectNativeRoutes(
+    children: any, parent_path: str, wrappers: list, out_routes: list
+) -> None;
+
+def _makeNativeRouteScreen(route: dict) -> any;
 
 def:pub __nativeRouter(props: dict = {}) -> JsxElement;
 def:pub __nativeRoutes(props: dict = {}) -> JsxElement;

@@ -33,7 +33,8 @@ class JacClientCompiler {
             'useNavigate',
             'useLocation',
             'useParams',
-            'AuthGuard'
+            'AuthGuard',
+            'JacClientErrorBoundary'
         ];
         COMPOUND_EXTENSIONS = ['.native.cl.jac', '.cl.jac', '.impl.jac', '.test.jac'];
     }

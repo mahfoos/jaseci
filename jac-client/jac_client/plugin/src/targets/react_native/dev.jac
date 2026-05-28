@@ -1,4 +1,4 @@
-"""React Native dev loop (Phase 2 — Metro Fast Refresh).
+"""React Native dev loop (Metro Fast Refresh).
 
 Wires the pieces required to round-trip a ``.cl.jac`` edit to a running
 device/emulator in < 3s via Metro's existing Fast Refresh:
@@ -85,29 +85,90 @@ def resolve_metro_port(cli_port: int = DEFAULT_METRO_PORT) -> int {
     return cli_port;
 }
 
-"""Fail fast if a port is already bound.
-
-Mirrors the Capacitor-dev port assertion. The API subprocess silently
-bumps the port on EADDRINUSE which would leave the adb-reverse mapping
-and the build-time ``__JAC_API_BASE_URL__`` pointing at a dead port —
-explicit failure here is the only way to make that mode visible.
-"""
-def assert_rn_port_available(port: int, role: str) {
+"""Return the bind error string for a port, or None when bind succeeds."""
+def _rn_port_bind_error(port: int) -> Optional[str] {
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
     try {
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1);
         s.bind(("0.0.0.0", port));
+        return None;
     } except OSError as e {
-        raise RuntimeError(
-            f"{role} port {port} is already in use ({e}). The react-native "
-            "dev loop needs deterministic ports so adb reverse and the "
-            "API base-URL injected into app.json match what's actually "
-            "listening. Stop the conflicting process or pass a different "
-            f"port (e.g. --port {port + 100})."
-        );
+        return str(e);
     } finally {
         s.close();
     }
+}
+
+"""Assert that an exact port is available.
+
+Kept for test/debug call sites that want strict behavior instead of the
+auto-increment fallback used by the react-native dev loop.
+"""
+def assert_rn_port_available(port: int, role: str) {
+    err = _rn_port_bind_error(port);
+    if err is None {
+        return;
+    }
+    raise RuntimeError(
+        f"{role} port {port} is already in use ({err}). The react-native "
+        "dev loop needs deterministic ports so adb reverse and the "
+        "API base-URL injected into app.json match what's actually "
+        "listening. Stop the conflicting process or pass a different "
+        f"port (e.g. --port {port + 100})."
+    );
+}
+
+"""Pick a free port starting from ``start_port`` and incrementing by one.
+
+If ``start_port`` is busy (or reserved), probes ``start_port + 1``, then
+``+2``, etc., returning the first bindable port.
+"""
+def resolve_rn_port_or_next_available(
+    start_port: int,
+    role: str,
+    reserved: Optional[list[int]] = None,
+    max_scan: int = 200
+) -> int {
+    reserved_set: set[int] = set(reserved or []);
+    candidate = start_port;
+    first_err: Optional[str] = None;
+    scans = 0;
+
+    while scans <= max_scan {
+        if candidate in reserved_set {
+            candidate += 1;
+            scans += 1;
+            continue;
+        }
+
+        err = _rn_port_bind_error(candidate);
+        if err is None {
+            if candidate != start_port {
+                if first_err is None {
+                    console.warning(
+                        f"  {role} port {start_port} is reserved; using {candidate}."
+                    );
+                } else {
+                    console.warning(
+                        f"  {role} port {start_port} is in use ({first_err}); "
+                        f"using {candidate}."
+                    );
+                }
+            }
+            return candidate;
+        }
+
+        if first_err is None {
+            first_err = err;
+        }
+        candidate += 1;
+        scans += 1;
+    }
+
+    raise RuntimeError(
+        f"Unable to find a free {role} port starting at {start_port} "
+        f"(scanned {max_scan + 1} ports)."
+    );
 }
 
 # ---------------------------------------------------------------------------
