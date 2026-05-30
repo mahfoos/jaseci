@@ -6,14 +6,14 @@ import from jaclang.cli.console { console }
 import from jac_client.plugin.src.targets.build_common {
     SUBPROCESS_TIMEOUT_BUILD_NATIVE
 }
+import from jac_client.plugin.src.targets.node_tooling_common {
+    check_command_available as _node_check_command_available,
+    resolve_npx_or_bunx as _node_resolve_npx_or_bunx,
+    run_install_cmd as _node_run_install_cmd,
+    run_manifest_install as _node_run_manifest_install
+}
 import from jac_client.plugin.src.targets.react_native.config {
     _load_react_native_config
-}
-import from jac_client.plugin.src.targets.mobile.common {
-    _check_command_available as _mobile_check_command_available,
-    _resolve_npx as _mobile_resolve_npx,
-    _run_install_cmd as _mobile_run_install_cmd,
-    _run_manifest_install
 }
 
 # ---------------------------------------------------------------------------
@@ -33,23 +33,25 @@ glob DEFAULT_PROJECT_DIR_NAME = "mobile-rn",
 # Mirrors Capacitor target's install-tool detection. We accept either npm
 # or bun. yarn/pnpm not exercised; can be added when a user asks.
 def _check_command_available(cmd: list[str], timeout: int = 5) -> bool {
-    (ok, _) = _mobile_check_command_available(cmd, timeout=timeout);
+    (ok, _) = _node_check_command_available(cmd, timeout=timeout);
     return ok;
 }
 
 """Resolve npx or bunx for one-off CLI invocations."""
 def resolve_npx -> str {
-    return _mobile_resolve_npx();
+    return _node_resolve_npx_or_bunx();
 }
 
 """Install npm packages into the Expo project dir using npm or bun."""
 def run_install_cmd(project_dir: Path, packages: list[str], dev: bool = False) {
-    _mobile_run_install_cmd(project_dir, packages, dev=dev);
+    _node_run_install_cmd(
+        project_dir, packages, dev=dev, default_package_name=DEFAULT_APP_SLUG
+    );
 }
 
 """Install all dependencies from the Expo project's package.json."""
 def run_manifest_install(project_dir: Path) {
-    _run_manifest_install(project_dir);
+    _node_run_manifest_install(project_dir);
 }
 
 """Run a shell command inside a directory, raising on non-zero exit."""

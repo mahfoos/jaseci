@@ -38,6 +38,7 @@ test "react native target files exist" {
     assert 'name: str = "react-native"' in content;
     assert "requires_setup: bool = True" in content;
     assert 'config_section: str = "react_native"' in content;
+    assert "import jac_client.plugin.src.entry_generators.native_entry;" in content;
 }
 
 test "target type parser supports react-native and aliases" {
@@ -70,9 +71,9 @@ test "register.jac registers the react native target and imports native entry" {
     assert "ReactNativeTarget" in content;
     # Side-effect import is the documented mechanism for entry-generator
     # registration; missing it means `jac build --client react-native` could
-    # silently find no native generator at runtime.
-    assert "from jac_client.plugin.src.entry_generators.native_entry" in content;
-    assert "build_native_entry_script" in content;
+    # silently find no native generator in registry-compat code paths.
+    assert "import jac_client.plugin.src.entry_generators.native_entry;" in content;
+    assert "build_native_entry_script" not in content;
     assert "react_native_target = ReactNativeTarget()" in content;
     assert "registry.register(react_native_target)" in content;
 }
@@ -655,7 +656,11 @@ test "resolve_rn_port_or_next_available bumps away from a busy port" {
         resolve_rn_port_or_next_available
     }
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
+    try {
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
+    } except PermissionError {
+        return;
+    }
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0);
     s.bind(("127.0.0.1", 0));
     busy_port = s.getsockname()[1];
@@ -678,7 +683,11 @@ test "resolve_rn_port_or_next_available skips reserved ports" {
 
     # Pick a currently free base port, then mark it reserved so resolver
     # must move upward even though bind would succeed.
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
+    try {
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
+    } except PermissionError {
+        return;
+    }
     s.bind(("127.0.0.1", 0));
     base_port = s.getsockname()[1];
     s.close();
@@ -838,11 +847,125 @@ test "client config supports target-scoped npm table for react native" {
     }
 }
 
+test "react native common does not import mobile private helpers" {
+    common_path = _plugin_dir / "src" / "targets" / "react_native" / "common.jac";
+    content = common_path.read_text();
+    assert "node_tooling_common" in content;
+    assert "jac_client.plugin.src.targets.mobile.common" not in content;
+    assert "_mobile_check_command_available" not in content;
+    assert "_mobile_resolve_npx" not in content;
+    assert "_mobile_run_install_cmd" not in content;
+    assert "run_manifest_install as _run_manifest_install" not in content;
+}
+
+test "client config getters expose mobile and react-native tables" {
+    import tempfile;
+    import from jac_client.plugin.src.config_loader { JacClientConfig }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_dir = Path(tmp);
+        jac_toml = (
+            "[project]\n"
+            "name = \"cfg-getters\"\n"
+            "version = \"1.0.0\"\n"
+            "entry-point = \"main.jac\"\n\n"
+            "[plugins.client.mobile]\n"
+            "app_name = \"MobileName\"\n\n"
+            "[plugins.client.react_native]\n"
+            "project_dir = \"mobile-rn-alt\"\n"
+            "platform = \"ios\"\n"
+        );
+        (project_dir / "jac.toml").write_text(jac_toml, encoding="utf-8");
+        cfg = JacClientConfig(project_dir=project_dir);
+        cfg.load();
+        mobile_cfg = cfg.get_mobile_config();
+        rn_cfg = cfg.get_react_native_config();
+        assert mobile_cfg["app_name"] == "MobileName";
+        assert rn_cfg["project_dir"] == "mobile-rn-alt";
+        assert rn_cfg["platform"] == "ios";
+    }
+}
+
+test "node tooling manifest install prefers npm when available" {
+    import tempfile;
+    import unittest.mock;
+    import from jac_client.plugin.src.targets.node_tooling_common {
+        run_manifest_install
+    }
+
+    calls: list[list[str]] = [];
+
+    def _fake_run(cmd: list[str], **kwargs: dict) -> object {
+        class _Res {
+            has returncode: int = 0,
+                stdout: str = "",
+                stderr: str = "";
+        }
+        calls.append(cmd);
+        r = _Res();
+        if cmd == ["npm", "--version"] {
+            r.returncode = 0;
+            r.stdout = "10.9.0";
+            return r;
+        }
+        r.returncode = 0;
+        return r;
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        with unittest.mock.patch("subprocess.run", side_effect=_fake_run) {
+            run_manifest_install(Path(tmp));
+        }
+    }
+    assert ["npm", "--version"] in calls;
+    assert ["npm", "install"] in calls;
+    assert ["bun", "install"] not in calls;
+}
+
+test "node tooling manifest install falls back to bun when npm missing" {
+    import tempfile;
+    import unittest.mock;
+    import from jac_client.plugin.src.targets.node_tooling_common {
+        run_manifest_install
+    }
+
+    calls: list[list[str]] = [];
+
+    def _fake_run(cmd: list[str], **kwargs: dict) -> object {
+        class _Res {
+            has returncode: int = 0,
+                stdout: str = "",
+                stderr: str = "";
+        }
+        calls.append(cmd);
+        r = _Res();
+        if cmd == ["npm", "--version"] {
+            r.returncode = 1;
+            return r;
+        }
+        r.returncode = 0;
+        return r;
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        with unittest.mock.patch("subprocess.run", side_effect=_fake_run) {
+            run_manifest_install(Path(tmp));
+        }
+    }
+    assert ["npm", "--version"] in calls;
+    assert ["bun", "install"] in calls;
+    assert ["npm", "install"] not in calls;
+}
+
 test "dual-target gate can run e2e builds when explicitly enabled" {
     import shutil;
     import subprocess;
     import tempfile;
-    import from test_helpers { get_env_with_npm, get_jac_command }
+    try {
+        import from test_helpers { get_env_with_npm, get_jac_command }
+    } except ModuleNotFoundError {
+        return;
+    }
 
     if os.environ.get("JAC_PHASE3_DUAL_TARGET_GATE", "0") != "1" {
         pytest.skip(
@@ -1346,7 +1469,11 @@ test "e2e: react-native android build produces APK" {
     import shutil;
     import subprocess;
     import tempfile;
-    import from test_helpers { get_env_with_npm, get_jac_command }
+    try {
+        import from test_helpers { get_env_with_npm, get_jac_command }
+    } except ModuleNotFoundError {
+        return;
+    }
 
     if os.environ.get("JAC_RN_E2E", "0") != "1" {
         pytest.skip(

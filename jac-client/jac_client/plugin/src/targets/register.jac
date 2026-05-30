@@ -16,9 +16,7 @@ import from jac_client.plugin.src.targets.react_native_target { ReactNativeTarge
 import from jac_client.plugin.src.entry_generators.web_entry {
     build_simple_react_entry_script
 }
-import from jac_client.plugin.src.entry_generators.native_entry {
-    build_native_entry_script
-}
+import jac_client.plugin.src.entry_generators.native_entry;
 
 # Note: Jac's annex pass should auto-discover .impl.jac files automatically
 # The impl files in impl/ directory should be loaded when the base classes are imported

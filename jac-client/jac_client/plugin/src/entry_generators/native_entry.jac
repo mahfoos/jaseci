@@ -22,7 +22,7 @@ import from jaclang.runtimelib.entry_generators { register_entry_generator }
 # field, so changing one without the other breaks the registration lookup.
 glob NATIVE_ROOT_COMPONENT_NAME = "main";
 
-"""Build the React Native entry script that registers the compiled Jac
+"""Build a compatibility React Native entry script that registers the compiled Jac
 ``app`` export as the Expo root component.
 
 Args:
@@ -39,6 +39,8 @@ Args:
 def build_native_entry_script(
     entry_module: str, install_global_handlers: bool = True
 ) -> str {
+    # Compatibility-only code path for runtime registry/tests.
+    # ReactNativeTarget.build writes Expo's registerRootComponent entry directly.
     lines: list[str] = [
         'import { AppRegistry } from "react-native";',
         f'import {{ app as JacApp }} from "./{entry_module}.js";',
