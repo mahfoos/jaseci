@@ -228,7 +228,7 @@ impl ReactNativeTarget.build(
     # Step 2: stage compiled entry + write index.ts so Metro picks them up.
     entry_module: str = entry_file.stem;
     stage_compiled_entry(compiled_dir, rn_dir, entry_module);
-    write_native_entry(rn_dir, "jac-app");
+    write_native_entry(rn_dir);
 
     # Step 3: expo prebuild — generates android/ or ios/ from app.json.
     console.print(
@@ -339,12 +339,10 @@ impl ReactNativeTarget.dev(
         requested_api, "API", reserved=[metro_port]
     );
 
-    # Visible host: env override > LAN IPv4 > 127.0.0.1. Android emulators
-    # use 10.0.2.2 to reach the host's localhost (the build-time injector
-    # uses that), but for *physical* devices on the same Wi-Fi we need
-    # the dev machine's LAN IP. We default to LAN so the same command
-    # works for both — emulators ignore the LAN IP because they hit
-    # localhost anyway via adb-reverse.
+    # Visible host: env override > LAN IPv4 > 127.0.0.1. For physical
+    # devices on the same Wi-Fi we need the dev machine's LAN IP.
+    # Emulators still work because adb reverse maps device localhost to
+    # the host API port.
     host_override = os.environ.get(JAC_RN_DEV_HOST_ENV, "").strip();
     visible_host: str;
     if host_override {
@@ -393,7 +391,7 @@ impl ReactNativeTarget.dev(
     # Step 2: stage entry + index.ts so the running Metro picks them up.
     entry_module: str = entry_file.stem;
     stage_compiled_entry(compiled_dir, rn_dir, entry_module);
-    write_native_entry(rn_dir, "jac-app");
+    write_native_entry(rn_dir);
 
     # Step 3: inject dev API URL into app.json. Constants.expoConfig
     # reads this at runtime via __getApiBaseUrl's second-tier fallback.

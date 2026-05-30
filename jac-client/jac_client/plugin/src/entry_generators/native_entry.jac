@@ -7,7 +7,7 @@ Expo app config). This is the native analogue of
 ``web_entry.build_simple_react_entry_script`` — same contract surface
 (``entry_module`` + ``install_global_handlers``), different body.
 
-The generator self-registers under the ``native`` key in
+The generator self-registers under the ``react-native`` key in
 ``jaclang.runtimelib.entry_generators`` at module import time. Importing
 ``react_native_target.jac`` triggers this import, which guarantees the
 generator is wired before any ``jac build --client react-native`` call.
@@ -51,9 +51,9 @@ def build_native_entry_script(
     return "\n".join(lines);
 }
 
-# Self-register at module load. The target-registration flow imports this
-# module specifically (via `react_native_target.jac`) so the side effect
-# runs once per process — same pattern as `web_entry.jac`.
+# Self-register at module load. Keep ``native`` as a legacy alias for
+# compatibility with any downstream code that looked up the old key.
 with entry {
+    register_entry_generator("react-native", build_native_entry_script);
     register_entry_generator("native", build_native_entry_script);
 }

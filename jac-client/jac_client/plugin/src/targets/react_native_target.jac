@@ -11,8 +11,9 @@ import from typing { Optional }
 import from jaclang.runtimelib.watcher { FileChangeEvent }
 import from jac_client.plugin.src.targets.registry { ClientTarget }
 
-# Importing this module triggers side-effect registration of the "native"
-# entry generator in `jaclang.runtimelib.entry_generators`.
+# Importing this module triggers side-effect registration of the
+# "react-native" (and legacy "native") entry generator keys in
+# `jaclang.runtimelib.entry_generators`.
 import from jac_client.plugin.src.entry_generators.native_entry {
     build_native_entry_script
 }

@@ -191,12 +191,14 @@ test "native entry generator is registered through the runtime registry" {
     }
 
     clear_entry_generators();
+    assert not has_entry_generator("react-native");
     assert not has_entry_generator("native");
     import jac_client.plugin.src.entry_generators.native_entry as native_entry_mod;
     importlib.reload(native_entry_mod);
+    assert has_entry_generator("react-native");
     assert has_entry_generator("native");
 
-    fn = get_entry_generator("native");
+    fn = get_entry_generator("react-native");
     script = fn("main");
     # Acceptance: emitted script registers the imported `app` against
     # AppRegistry under the canonical Expo root component name. These three
@@ -209,6 +211,7 @@ test "native entry generator is registered through the runtime registry" {
     # the module exports, not a stale closure or shim.
     direct = native_entry_mod.build_native_entry_script("main");
     assert direct == script;
+    assert get_entry_generator("native")("main") == script;
 }
 
 test "native runtime file ships parallel to the web runtime" {
@@ -274,6 +277,8 @@ test "native runtime file ships parallel to the web runtime" {
     assert "_RELATIVE_IMG_SRC_WARNED" in impl_content;
     assert "__JAC_RN_ASSET_MAP__" in impl_content;
     assert "__jac_rn_asset__:" in impl_content;
+    assert "10.0.2.2" not in impl_content;
+    assert "Missing API base URL" in impl_content;
     assert 'field_type == "select"' in impl_content;
     assert 'field_type == "radio"' in impl_content;
     assert "_getEnumOptions" in impl_content;
@@ -332,8 +337,8 @@ test "react native target compile calls set target_name to react-native" {
 }
 
 test "target selection keeps web and native entry/runtime paths separate" {
-    # Invariant: target flag controls runtime + entry generator.
-    # RN must call the native generator/runtime; web must keep web defaults.
+    # Invariant: target flag controls runtime + entry strategy.
+    # RN uses Expo registerRootComponent; web keeps web entry-generator wiring.
     rn_build_src = _plugin_dir / "src" / "targets" / "react_native" / "build.jac";
     rn_impl_src = (
         _plugin_dir / "src" / "targets" / "impl" / "react_native_target.impl.jac"
@@ -344,7 +349,8 @@ test "target selection keeps web and native entry/runtime paths separate" {
     rn_impl_content = rn_impl_src.read_text();
     web_content = web_compiler_impl.read_text();
 
-    assert 'get_entry_generator("native")' in rn_build_content;
+    assert 'get_entry_generator("native")' not in rn_build_content;
+    assert "registerRootComponent(App)" in rn_build_content;
     assert 'runtime_filename="client_runtime_native.cl.jac"' in rn_impl_content;
     assert 'get_entry_generator("web")' in web_content;
     # Web compile path should not force native runtime.
@@ -373,6 +379,8 @@ test "react native scaffold writes Expo project files" {
         metro_content = (rn_dir / "metro.config.js").read_text();
         pkg_content = (rn_dir / "package.json").read_text();
         app_content = (rn_dir / "app" / "App.tsx").read_text();
+        index_content = (rn_dir / "index.ts").read_text();
+        tsconfig_content = (rn_dir / "tsconfig.json").read_text();
         # Metro must alias @jac/runtime to the compiled runtime so the
         # bundle gets the native variant at resolution time.
         assert "@jac/runtime" in metro_content;
@@ -382,7 +390,16 @@ test "react native scaffold writes Expo project files" {
         assert "@react-navigation/native-stack" in pkg_content;
         assert "react-native-screens" in pkg_content;
         assert "expo-asset" in pkg_content;
+        assert "react-native-gesture-handler" in pkg_content;
+        assert "import 'react-native-gesture-handler';" in index_content;
+        assert "registerRootComponent(App);" in index_content;
+        assert "AppRegistry.registerComponent" not in index_content;
         assert "from '../jac-app'" in app_content;
+        assert "SafeAreaProvider" in app_content;
+        assert "react-native-safe-area-context" in app_content;
+        assert "SafeAreaView, StatusBar } from 'react-native'" not in app_content;
+        assert '"strict": false' in tsconfig_content;
+        assert '"strict": true' not in tsconfig_content;
         app_json = (rn_dir / "app.json").read_text();
         # D8: New Architecture + Hermes from day one.
         assert "newArchEnabled" in app_json;
@@ -414,6 +431,40 @@ test "scaffold preserves user-edited files on re-run" {
         );
         # metro.config.js must still be present (refreshed)
         assert (rn_dir / "metro.config.js").exists();
+    }
+}
+
+test "scaffold refreshes auto-generated index.ts on re-run" {
+    import tempfile;
+    import from jac_client.plugin.src.targets.react_native.scaffold {
+        write_expo_scaffold
+    }
+
+    with tempfile.TemporaryDirectory() as tmp {
+        project_root = Path(tmp);
+        rn_dir = project_root / "mobile-rn";
+        write_expo_scaffold(rn_dir, project_root);
+        index_path = rn_dir / "index.ts";
+        jac_app_path = rn_dir / "jac-app.js";
+        index_path.write_text(
+            "// Auto-generated by jac build --client react-native. Do not edit.\n"
+            "import { registerRootComponent } from 'expo';\n"
+            "const App = () => null;\n"
+            "registerRootComponent(App);\n",
+            encoding="utf-8"
+        );
+        jac_app_path.write_text(
+            "// Auto-generated by jac build --client react-native. Do not edit.\n"
+            "export { app } from './jac-src/main.js';\n",
+            encoding="utf-8"
+        );
+        write_expo_scaffold(rn_dir, project_root);
+        refreshed = index_path.read_text(encoding="utf-8");
+        refreshed_app = jac_app_path.read_text(encoding="utf-8");
+        assert "jac-client: scaffold-managed" in refreshed;
+        assert "const App = () => null;" not in refreshed;
+        assert "jac-client: scaffold-managed" in refreshed_app;
+        assert "export { app } from './jac-src/main.js';" not in refreshed_app;
     }
 }
 
@@ -524,6 +575,7 @@ test "stage_compiled_entry injects asset registry import" {
         stage_native_image_assets(compiled, rn_dir);
         stage_compiled_entry(compiled, rn_dir, "main");
         staged = (rn_dir / "jac-app.js").read_text();
+        assert "Auto-generated by jac build --client react-native" in staged;
         assert "import './jac-asset-registry';" in staged;
     }
 }
@@ -1094,16 +1146,15 @@ test "eas.json is scaffold-managed and refreshed on re-run" {
         rn_dir = project_root / "mobile-rn";
         write_expo_scaffold(rn_dir, project_root);
         eas_path = rn_dir / "eas.json";
+        sidecar = rn_dir / ".eas-managed";
         original = eas_path.read_text(encoding="utf-8");
-        import json;
-        eas_data = json.loads(original);
-        assert "_jac_scaffold_managed" in eas_data;
-        # Re-run scaffold; eas.json should be refreshed since it has the marker key.
+        assert sidecar.exists() , "scaffold sidecar marker must be written";
+        # Re-run scaffold; eas.json should be refreshed while sidecar exists.
         write_expo_scaffold(rn_dir, project_root);
         assert eas_path.read_text(encoding="utf-8") == original;
-        # Remove the marker key to simulate user edits — re-run must preserve.
-        del eas_data["_jac_scaffold_managed"];
-        custom = json.dumps(eas_data, indent=2) + "\n";
+        # Remove the sidecar to simulate user ownership — re-run must preserve.
+        sidecar.unlink();
+        custom = original + "\n";
         eas_path.write_text(custom, encoding="utf-8");
         write_expo_scaffold(rn_dir, project_root);
         assert eas_path.read_text(encoding="utf-8") == custom , (
@@ -1288,9 +1339,8 @@ test "react native scaffold includes EAS docs pointer in setup output" {
 """End-to-end test: scaffold → compile → expo prebuild → Gradle assembleDebug.
 
 Requires Android SDK + Java JDK on PATH. Skipped unless JAC_RN_E2E=1 is set.
-Validates that the RN 0.77.x bump produces a working Gradle build
-(enableBundleCompression is recognized, assembleDebug succeeds, APK
-artifact is produced).
+Validates that the pinned RN 0.79.x stack produces a working Gradle build
+with a real APK artifact.
 """
 test "e2e: react-native android build produces APK" {
     import shutil;

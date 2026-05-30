@@ -25,16 +25,12 @@ process and put the .jac → JS recompile + adb-reverse + API base-URL
 plumbing around it.
 
 Module layout intentionally mirrors ``mobile/dev.jac`` so reviewers
-familiar with one can navigate the other; the duplication of small
-helpers (port assertion, watchdog probe, backend launcher) is deliberate
-— extracting a ``client_dev_common.jac`` deserves its own session against
-the green Capacitor suite.
+familiar with one can navigate the other, with low-level shared helpers
+centralized in ``targets/client_dev_common.jac``.
 """
 
 import json;
 import os;
-import shutil;
-import socket;
 import subprocess;
 import from pathlib { Path }
 import from typing { Any, Optional, cast }
@@ -51,6 +47,13 @@ import from jac_client.plugin.src.targets.react_native.build {
     stage_compiled_entry,
     strip_css_imports,
     write_native_entry
+}
+import from jac_client.plugin.src.targets.client_dev_common {
+    ensure_watchdog_common,
+    port_bind_error,
+    resolve_port_or_next_available,
+    setup_android_port_reverse_common,
+    start_backend_server_common
 }
 # Re-use the JacRuntime hub eviction helper from the Capacitor target —
 # the underlying invariant (stale module cache survives between compiles)
@@ -87,16 +90,35 @@ def resolve_metro_port(cli_port: int = DEFAULT_METRO_PORT) -> int {
 
 """Return the bind error string for a port, or None when bind succeeds."""
 def _rn_port_bind_error(port: int) -> Optional[str] {
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
-    try {
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1);
-        s.bind(("0.0.0.0", port));
-        return None;
-    } except OSError as e {
-        return str(e);
-    } finally {
-        s.close();
+    return port_bind_error(port);
+}
+
+"""Pick a free port starting from ``start_port`` and incrementing by one.
+
+If ``start_port`` is busy (or reserved), probes ``start_port + 1``, then
+``+2``, etc., returning the first bindable port.
+"""
+def resolve_rn_port_or_next_available(
+    start_port: int,
+    role: str,
+    reserved: Optional[list[int]] = None,
+    max_scan: int = 200
+) -> int {
+    return resolve_port_or_next_available(start_port, role, reserved, max_scan);
+}
+
+"""Best-effort `adb reverse` so the device can reach Metro + the Jac API
+over localhost. No-op when adb isn't on PATH (no device anyway). The
+Metro CLI itself runs ``adb reverse tcp:8081`` on startup, but doing it
+here too means our API port also gets reversed — Metro only handles its
+own port, not the Jac API the device will call.
+"""
+def setup_android_port_reverse(metro_port: int, api_port: int) {
+    ports = [metro_port];
+    if api_port != metro_port {
+        ports.append(api_port);
     }
+    setup_android_port_reverse_common(ports);
 }
 
 """Assert that an exact port is available.
@@ -116,100 +138,6 @@ def assert_rn_port_available(port: int, role: str) {
         "listening. Stop the conflicting process or pass a different "
         f"port (e.g. --port {port + 100})."
     );
-}
-
-"""Pick a free port starting from ``start_port`` and incrementing by one.
-
-If ``start_port`` is busy (or reserved), probes ``start_port + 1``, then
-``+2``, etc., returning the first bindable port.
-"""
-def resolve_rn_port_or_next_available(
-    start_port: int,
-    role: str,
-    reserved: Optional[list[int]] = None,
-    max_scan: int = 200
-) -> int {
-    reserved_set: set[int] = set(reserved or []);
-    candidate = start_port;
-    first_err: Optional[str] = None;
-    scans = 0;
-
-    while scans <= max_scan {
-        if candidate in reserved_set {
-            candidate += 1;
-            scans += 1;
-            continue;
-        }
-
-        err = _rn_port_bind_error(candidate);
-        if err is None {
-            if candidate != start_port {
-                if first_err is None {
-                    console.warning(
-                        f"  {role} port {start_port} is reserved; using {candidate}."
-                    );
-                } else {
-                    console.warning(
-                        f"  {role} port {start_port} is in use ({first_err}); "
-                        f"using {candidate}."
-                    );
-                }
-            }
-            return candidate;
-        }
-
-        if first_err is None {
-            first_err = err;
-        }
-        candidate += 1;
-        scans += 1;
-    }
-
-    raise RuntimeError(
-        f"Unable to find a free {role} port starting at {start_port} "
-        f"(scanned {max_scan + 1} ports)."
-    );
-}
-
-# ---------------------------------------------------------------------------
-# adb reverse (Android dev connectivity)
-# ---------------------------------------------------------------------------
-"""Best-effort `adb reverse` so the device can reach Metro + the Jac API
-over localhost. No-op when adb isn't on PATH (no device anyway). The
-Metro CLI itself runs ``adb reverse tcp:8081`` on startup, but doing it
-here too means our API port also gets reversed — Metro only handles its
-own port, not the Jac API the device will call.
-"""
-def setup_android_port_reverse(metro_port: int, api_port: int) -> None {
-    if not shutil.which("adb") {
-        return;
-    }
-    def _try(port: int) {
-        cmd = ["adb", "reverse", f"tcp:{port}", f"tcp:{port}"];
-        try {
-            r = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=SUBPROCESS_TIMEOUT_SHORT,
-                check=False
-            );
-            if r.returncode == 0 {
-                console.print(
-                    f"  ✔ adb reverse tcp:{port} tcp:{port}", style="success"
-                );
-            } else {
-                err = (r.stderr or "").strip() or "unknown adb error";
-                console.warning(f"  ⚠ adb reverse failed for tcp:{port} ({err})");
-            }
-        } except Exception as e {
-            console.warning(f"  ⚠ adb reverse failed for tcp:{port} ({e})");
-        }
-    }
-    _try(metro_port);
-    if api_port != metro_port {
-        _try(api_port);
-    }
 }
 
 # ---------------------------------------------------------------------------
@@ -273,29 +201,9 @@ def restore_app_json(rn_dir: Path, original: Optional[str]) -> None {
 # ---------------------------------------------------------------------------
 # Backend (jaclang start) subprocess
 # ---------------------------------------------------------------------------
-"""Spawn the Jac API server as a subprocess. Same shape as
-``mobile/dev._mobile_start_backend_server`` — duplicated here so the
-react-native dev path doesn't reach into the Capacitor target's
-internals for what is fundamentally a generic ``jac start --no_client``
-invocation.
-"""
+"""Spawn the Jac API server as a subprocess."""
 def start_backend_server(entry_file: Path, project_dir: Path, port: int) -> any {
-    import sys;
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "jaclang",
-            "start",
-            str(entry_file),
-            "--port",
-            str(port),
-            "--no_client"
-        ],
-        cwd=str(project_dir),
-        stdout=None,
-        stderr=None
-    );
+    return start_backend_server_common(entry_file, project_dir, port);
 }
 
 # ---------------------------------------------------------------------------
@@ -306,17 +214,7 @@ users get the same actionable message regardless of which target they
 run.
 """
 def ensure_watchdog -> bool {
-    try {
-        import watchdog;
-        return True;
-    } except ImportError {
-        console.warning(
-            "  watchdog not installed — saving .jac files will not refresh the device. "
-            "Install with: pip install 'watchdog>=3.0.0' (or add to [dev-dependencies]).",
-            style="muted"
-        );
-        return False;
-    }
+    return ensure_watchdog_common("the device");
 }
 
 """Recompile the Jac client graph after a save and re-stage the entry

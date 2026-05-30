@@ -1,8 +1,6 @@
 """Mobile target: Vite HMR, Capacitor live-reload, and dev workflow helpers."""
 import json;
 import os;
-import shutil;
-import socket;
 import subprocess;
 import from pathlib { Path }
 import from typing { Any, cast }
@@ -12,6 +10,12 @@ import from jac_client.plugin.src.config_loader { JacClientConfig }
 import from jac_client.plugin.src.targets.mobile.common {
     SUBPROCESS_TIMEOUT_SHORT,
     _resolve_npx
+}
+import from jac_client.plugin.src.targets.client_dev_common {
+    ensure_watchdog_common,
+    port_bind_error,
+    setup_android_port_reverse_common,
+    start_backend_server_common
 }
 
 """Read [plugins.client.api] base_url for warnings and port resolution."""
@@ -33,20 +37,15 @@ anything makes the failure mode explicit instead of arriving as a confusing
 `role` is a short label (e.g. "Vite" or "API") used in the error message.
 """
 def _assert_mobile_port_available(port: int, role: str) {
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM);
-    try {
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1);
-        s.bind(("0.0.0.0", port));
-    } except OSError as e {
+    err = port_bind_error(port);
+    if err is not None {
         raise RuntimeError(
-            f"{role} port {port} is already in use ({e}). Mobile dev needs "
+            f"{role} port {port} is already in use ({err}). Mobile dev needs "
             "deterministic ports so adb reverse and capacitor.config.json "
             "match what the server actually binds. Stop the conflicting "
             f"process, choose a different port (e.g. --port {port + 100}), "
             f"or set [plugins.client].vite.server.port in jac.toml."
         );
-    } finally {
-        s.close();
     }
 }
 
@@ -80,52 +79,16 @@ and emitted noisy "[Errno 2] No such file" warnings on every dev run on hosts
 without adb.
 """
 def _mobile_setup_android_port_reverse(vite_port: int, server_port: int) {
-    if not shutil.which("adb") {
-        return;
-    }
-
-    def _try_adb_reverse_port(port: int) {
-        cmd = ["adb", "reverse", f"tcp:{port}", f"tcp:{port}"];
-        try {
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=SUBPROCESS_TIMEOUT_SHORT,
-                check=False
-            );
-            if result.returncode == 0 {
-                console.print(
-                    f"  ✔ adb reverse tcp:{port} tcp:{port}", style="success"
-                );
-            } else {
-                err = (result.stderr or "").strip() or "unknown adb error";
-                console.warning(f"  ⚠ adb reverse failed for tcp:{port} ({err})");
-            }
-        } except Exception as e {
-            console.warning(f"  ⚠ adb reverse failed for tcp:{port} ({e})");
-        }
-    }
-
-    _try_adb_reverse_port(vite_port);
+    ports = [vite_port];
     if server_port != vite_port {
-        _try_adb_reverse_port(server_port);
+        ports.append(server_port);
     }
+    setup_android_port_reverse_common(ports, timeout=SUBPROCESS_TIMEOUT_SHORT);
 }
 
 """Return True if watchdog is available (required for .jac → client HMR)."""
 def _mobile_ensure_watchdog -> bool {
-    try {
-        import watchdog;
-        return True;
-    } except ImportError {
-        console.warning(
-            "  watchdog not installed — saving .jac files will not refresh the WebView. "
-            "Install with: pip install 'watchdog>=3.0.0' (or add to [dev-dependencies]).",
-            style="muted"
-        );
-        return False;
-    }
+    return ensure_watchdog_common("the WebView");
 }
 
 """Remove stale Jac modules from JacRuntime hub before mobile dev recompiles.
@@ -210,22 +173,7 @@ def _mobile_hmr_on_jac_changed(
 def _mobile_start_backend_server(
     entry_file: Path, project_dir: Path, port: int
 ) -> any {
-    import sys;
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "jaclang",
-            "start",
-            str(entry_file),
-            "--port",
-            str(port),
-            "--no_client"
-        ],
-        cwd=str(project_dir),
-        stdout=None,
-        stderr=None
-    );
+    return start_backend_server_common(entry_file, project_dir, port);
 }
 
 """Write server.url into capacitor.config.json for live-reload.

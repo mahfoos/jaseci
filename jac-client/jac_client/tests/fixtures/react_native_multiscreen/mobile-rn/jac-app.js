@@ -1,4 +1,4 @@
-// // jac-client: scaffold-managed; remove this line to opt out of auto-refresh
+// jac-client: scaffold-managed; remove this line to opt out of auto-refresh
 import React from 'react';
 import { View, Text } from 'react-native';
 

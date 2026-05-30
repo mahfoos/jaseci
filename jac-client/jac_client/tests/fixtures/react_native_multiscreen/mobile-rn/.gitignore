@@ -5,5 +5,11 @@ dist/
 web-build/
 android/
 ios/
+eas.json
+package-lock.json
+jac-src/
+jac-assets/
+jac-asset-registry.js
+.eas-managed
 *.tsbuildinfo
 .DS_Store

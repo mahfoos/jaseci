@@ -37,6 +37,10 @@ share/python-wheels/
 MANIFEST
 .venv/
 
+# Local tooling / scratch (not part of the repo)
+.jackal/
+/TODO.md
+
 # Others #
 .coverage
 .session

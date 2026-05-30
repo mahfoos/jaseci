@@ -1,6 +1,10 @@
-// // jac-client: scaffold-managed; remove this line to opt out of auto-refresh
+// jac-client: scaffold-managed; remove this line to opt out of auto-refresh
 import React from 'react';
-import { SafeAreaView, StatusBar } from 'react-native';
+import { StatusBar } from 'react-native';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+} from 'react-native-safe-area-context';
 import {
   JacClientErrorBoundary,
   ErrorFallback,
@@ -19,10 +23,12 @@ export default function App() {
       FallbackComponent={ErrorFallback}
       onError={__jacReactErrorHandler}
     >
-      <SafeAreaView style={{ flex: 1 }}>
-        <StatusBar />
-        <JacApp />
-      </SafeAreaView>
+      <SafeAreaProvider>
+        <SafeAreaView style={{ flex: 1 }}>
+          <StatusBar />
+          <JacApp />
+        </SafeAreaView>
+      </SafeAreaProvider>
     </JacClientErrorBoundary>
   );
 }

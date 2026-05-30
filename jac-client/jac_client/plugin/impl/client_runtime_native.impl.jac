@@ -671,7 +671,14 @@ impl __getApiBaseUrl -> str {
             return cfg.extra.apiBaseUrl;
         }
     } except Exception { }
-    return "http://10.0.2.2:8000";
+    if not globalThis.__jacWarnedMissingApiBaseUrl__ {
+        globalThis.__jacWarnedMissingApiBaseUrl__ = True;
+        console.warn(
+            "[jac-native-runtime] Missing API base URL. Set expo.extra.apiBaseUrl "
+            "or run jac start --client react-native --dev so it is injected."
+        );
+    }
+    return "";
 }
 
 impl __getLocalStorage(key: str) -> str {
