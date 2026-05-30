@@ -21,6 +21,15 @@ def port_bind_error(port: int) -> Optional[str] {
     }
 }
 
+"""Fail fast when a dev port is already bound."""
+def assert_port_available(port: int, role: str, failure_hint: str) -> None {
+    err = port_bind_error(port);
+    if err is None {
+        return;
+    }
+    raise RuntimeError(f"{role} port {port} is already in use ({err}). {failure_hint}");
+}
+
 """Find a bindable port, scanning upward from ``start_port``."""
 def resolve_port_or_next_available(
     start_port: int,

@@ -42,7 +42,7 @@ import from jac_client.plugin.src.targets.react_native.common {
     DEFAULT_APP_SLUG,
     EXPO_SDK_VERSION,
     REACT_NATIVE_VERSION,
-    _check_command_available
+    run_manifest_install
 }
 
 # The marker tells re-runs of setup whether a file was last touched by the
@@ -354,6 +354,7 @@ def _build_gitignore -> str {
         "jac-src/\n"
         "jac-assets/\n"
         "jac-asset-registry.js\n"
+        "package-lock.json\n"
         ".eas-managed\n"
         "*.tsbuildinfo\n"
         ".DS_Store\n"
@@ -448,11 +449,5 @@ def ensure_native_deps_installed(rn_dir: Path) -> None {
         "  Installing native deps (this can take a while on first setup)...",
         style="muted"
     );
-    import subprocess;
-    if _check_command_available(["npm", "--version"]) {
-        cmd = ["npm", "install"];
-    } else {
-        cmd = ["bun", "install"];
-    }
-    subprocess.run(cmd, cwd=rn_dir, check=True, capture_output=False);
+    run_manifest_install(rn_dir);
 }

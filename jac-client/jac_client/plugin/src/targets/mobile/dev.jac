@@ -12,8 +12,8 @@ import from jac_client.plugin.src.targets.mobile.common {
     _resolve_npx
 }
 import from jac_client.plugin.src.targets.client_dev_common {
+    assert_port_available,
     ensure_watchdog_common,
-    port_bind_error,
     setup_android_port_reverse_common,
     start_backend_server_common
 }
@@ -37,16 +37,15 @@ anything makes the failure mode explicit instead of arriving as a confusing
 `role` is a short label (e.g. "Vite" or "API") used in the error message.
 """
 def _assert_mobile_port_available(port: int, role: str) {
-    err = port_bind_error(port);
-    if err is not None {
-        raise RuntimeError(
-            f"{role} port {port} is already in use ({err}). Mobile dev needs "
-            "deterministic ports so adb reverse and capacitor.config.json "
-            "match what the server actually binds. Stop the conflicting "
-            f"process, choose a different port (e.g. --port {port + 100}), "
-            f"or set [plugins.client].vite.server.port in jac.toml."
-        );
-    }
+    assert_port_available(
+        port,
+        role,
+        "Mobile dev needs deterministic ports so adb reverse and "
+        "capacitor.config.json match what the server actually binds. Stop "
+        "the conflicting process, choose a different port "
+        f"(e.g. --port {port + 100}), or set "
+        "[plugins.client].vite.server.port in jac.toml."
+    );
 }
 
 """API connectivity for mobile dev."""

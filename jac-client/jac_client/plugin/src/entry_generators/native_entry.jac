@@ -1,20 +1,18 @@
-"""React Native entry-script generator.
+"""React Native entry-script generator (registry / tests).
 
-Builds the JS entry that hands the compiled Jac ``app`` export to
-``AppRegistry.registerComponent`` so React Native's runtime can mount it as
-the root component (D7: we ship Expo, so the registered name matches the
-Expo app config). This is the native analogue of
-``web_entry.build_simple_react_entry_script`` — same contract surface
-(``entry_module`` + ``install_global_handlers``), different body.
+Production builds use ``write_native_entry`` in ``react_native/build.jac``,
+which emits Expo's ``registerRootComponent(App)`` shell (gesture-handler import,
+``app/App.tsx`` wrapper, then ``jac-app.js`` bridge). That is the single mount
+path — do not also call ``AppRegistry.registerComponent`` here in the build
+flow or the Expo registration will override it.
 
-The generator self-registers under the ``react-native`` key in
-``jaclang.runtimelib.entry_generators`` at module import time. Importing
-``react_native_target.jac`` triggers this import, which guarantees the
-generator is wired before any ``jac build --client react-native`` call.
+This module keeps the same ``entry_generators`` contract as the web target
+(``entry_module`` + ``install_global_handlers``) for parity and unit tests.
+The body registers the compiled module directly via ``AppRegistry`` and is
+not written to ``mobile-rn/index.ts``.
 
-This generator mirrors the Expo root shell used by the native scaffold.
-The error-boundary wiring lives in the native runtime, so the entry stays
-small and target-specific.
+The generator self-registers under ``react-native`` (and legacy ``native``)
+at import time.
 """
 
 import from jaclang.runtimelib.entry_generators { register_entry_generator }

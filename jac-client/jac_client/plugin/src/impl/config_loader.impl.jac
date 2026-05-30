@@ -432,6 +432,20 @@ impl JacClientConfig.check_runtime_version(
     return (True, user_react, required_react);
 }
 
+"""Load ``[plugins.client.mobile]`` from jac.toml."""
+impl JacClientConfig.get_mobile_config(self: JacClientConfig) -> dict[str, any] {
+    client_config = self.get_jac_config().get_plugin_config("client");
+    section = client_config.get("mobile", {});
+    return section if isinstance(section, dict) else {};
+}
+
+"""Load ``[plugins.client.react_native]`` from jac.toml."""
+impl JacClientConfig.get_react_native_config(self: JacClientConfig) -> dict[str, any] {
+    client_config = self.get_jac_config().get_plugin_config("client");
+    section = client_config.get("react_native", {});
+    return section if isinstance(section, dict) else {};
+}
+
 """Sync core runtime dependency versions in jac.toml."""
 impl JacClientConfig.sync_runtime_version(self: JacClientConfig) -> None {
     jac_config = self.get_jac_config();

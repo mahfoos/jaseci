@@ -4,7 +4,10 @@ import stat;
 import subprocess;
 import from pathlib { Path }
 import from jaclang.cli.console { console }
-import from jac_client.plugin.src.targets.mobile.common { SUBPROCESS_TIMEOUT_BUILD }
+import from jac_client.plugin.src.targets.build_common {
+    SUBPROCESS_TIMEOUT_BUILD_MOBILE,
+    artifact_mtime
+}
 
 # ==============================================================================
 # Android Build Helpers
@@ -26,10 +29,7 @@ def _find_android_artifact(project_dir: Path) -> Path {
         );
     }
     if artifacts {
-        def _artifact_mtime(artifact: Path) -> float {
-            return float(artifact.stat().st_mtime);
-        }
-        artifacts.sort(key=_artifact_mtime, reverse=True);
+        artifacts.sort(key=artifact_mtime, reverse=True);
         return artifacts[0];
     }
     return outputs_root;
@@ -74,7 +74,7 @@ def _build_android(project_dir: Path, mobile_cfg: dict) -> Path {
         cwd=android_dir,
         check=True,
         capture_output=False,
-        timeout=SUBPROCESS_TIMEOUT_BUILD
+        timeout=SUBPROCESS_TIMEOUT_BUILD_MOBILE
     );
 
     artifact = _find_android_artifact(project_dir);
@@ -149,7 +149,7 @@ def _build_ios(project_dir: Path, mobile_cfg: dict) -> Path {
         cwd=ios_dir,
         check=False,
         capture_output=False,
-        timeout=SUBPROCESS_TIMEOUT_BUILD
+        timeout=SUBPROCESS_TIMEOUT_BUILD_MOBILE
     );
 
     if result.returncode != 0 {

@@ -3,13 +3,17 @@
 import subprocess;
 import from pathlib { Path }
 import from jaclang.cli.console { console }
+import from jac_client.plugin.src.targets.build_common {
+    SUBPROCESS_TIMEOUT_BUILD_NATIVE
+}
 import from jac_client.plugin.src.targets.react_native.config {
     _load_react_native_config
 }
 import from jac_client.plugin.src.targets.mobile.common {
     _check_command_available as _mobile_check_command_available,
     _resolve_npx as _mobile_resolve_npx,
-    _run_install_cmd as _mobile_run_install_cmd
+    _run_install_cmd as _mobile_run_install_cmd,
+    _run_manifest_install
 }
 
 # ---------------------------------------------------------------------------
@@ -24,7 +28,7 @@ glob DEFAULT_PROJECT_DIR_NAME = "mobile-rn",
      DEFAULT_APP_ID = "com.jac.app",
      EXPO_SDK_VERSION = "53",
      REACT_NATIVE_VERSION = "0.79.6",
-     SUBPROCESS_TIMEOUT_BUILD: int = 1200;
+     SUBPROCESS_TIMEOUT_BUILD: int = SUBPROCESS_TIMEOUT_BUILD_NATIVE;
 
 # Mirrors Capacitor target's install-tool detection. We accept either npm
 # or bun. yarn/pnpm not exercised; can be added when a user asks.
@@ -41,6 +45,11 @@ def resolve_npx -> str {
 """Install npm packages into the Expo project dir using npm or bun."""
 def run_install_cmd(project_dir: Path, packages: list[str], dev: bool = False) {
     _mobile_run_install_cmd(project_dir, packages, dev=dev);
+}
+
+"""Install all dependencies from the Expo project's package.json."""
+def run_manifest_install(project_dir: Path) {
+    _run_manifest_install(project_dir);
 }
 
 """Run a shell command inside a directory, raising on non-zero exit."""

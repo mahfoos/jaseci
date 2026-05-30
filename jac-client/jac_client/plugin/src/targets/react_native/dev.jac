@@ -49,8 +49,8 @@ import from jac_client.plugin.src.targets.react_native.build {
     write_native_entry
 }
 import from jac_client.plugin.src.targets.client_dev_common {
+    assert_port_available,
     ensure_watchdog_common,
-    port_bind_error,
     resolve_port_or_next_available,
     setup_android_port_reverse_common,
     start_backend_server_common
@@ -88,11 +88,6 @@ def resolve_metro_port(cli_port: int = DEFAULT_METRO_PORT) -> int {
     return cli_port;
 }
 
-"""Return the bind error string for a port, or None when bind succeeds."""
-def _rn_port_bind_error(port: int) -> Optional[str] {
-    return port_bind_error(port);
-}
-
 """Pick a free port starting from ``start_port`` and incrementing by one.
 
 If ``start_port`` is busy (or reserved), probes ``start_port + 1``, then
@@ -127,16 +122,13 @@ Kept for test/debug call sites that want strict behavior instead of the
 auto-increment fallback used by the react-native dev loop.
 """
 def assert_rn_port_available(port: int, role: str) {
-    err = _rn_port_bind_error(port);
-    if err is None {
-        return;
-    }
-    raise RuntimeError(
-        f"{role} port {port} is already in use ({err}). The react-native "
-        "dev loop needs deterministic ports so adb reverse and the "
-        "API base-URL injected into app.json match what's actually "
-        "listening. Stop the conflicting process or pass a different "
-        f"port (e.g. --port {port + 100})."
+    assert_port_available(
+        port,
+        role,
+        "The react-native dev loop needs deterministic ports so adb reverse "
+        "and the API base-URL injected into app.json match what's actually "
+        "listening. Stop the conflicting process or pass a different port "
+        f"(e.g. --port {port + 100})."
     );
 }
 

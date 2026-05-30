@@ -5,14 +5,17 @@ import subprocess;
 import from pathlib { Path }
 import from typing { Optional }
 import from jaclang.cli.console { console }
+import from jac_client.plugin.src.targets.build_common {
+    SUBPROCESS_TIMEOUT_BUILD_MOBILE,
+    SUBPROCESS_TIMEOUT_SHORT
+}
 
 # ==============================================================================
 # Constants
 # ==============================================================================
 glob DEFAULT_APP_ID = "com.jac.app",
      DEFAULT_APP_NAME = "Jac App",
-     SUBPROCESS_TIMEOUT_SHORT: int = 5,
-     SUBPROCESS_TIMEOUT_BUILD: int = 600,
+     SUBPROCESS_TIMEOUT_BUILD: int = SUBPROCESS_TIMEOUT_BUILD_MOBILE,
      MOBILE_SETUP_MODES: list[str] = ["android", "ios", "all"],
      SUPPORTED_PLATFORMS: list[str] = ["android", "ios"];
 
@@ -142,6 +145,18 @@ def _run_cap_cmd(project_dir: Path, args: list[str], label: str) {
     subprocess.run(cmd, cwd=project_dir, check=True, capture_output=False);
 }
 
+"""Install all dependencies from an existing package.json manifest."""
+def _run_manifest_install(project_dir: Path) {
+    (npm_ok, _) = _check_command_available(["npm", "--version"]);
+    if npm_ok {
+        cmd = ["npm", "install"];
+    } else {
+        cmd = ["bun", "install"];
+    }
+    console.print(f"  Installing dependencies in {project_dir.name}...", style="muted");
+    subprocess.run(cmd, cwd=project_dir, check=True, capture_output=False);
+}
+
 """Run an npm/bun install command."""
 def _run_install_cmd(project_dir: Path, packages: list[str], dev: bool = False) {
     pkg_json = project_dir / "package.json";
@@ -154,6 +169,10 @@ def _run_install_cmd(project_dir: Path, packages: list[str], dev: bool = False) 
         };
         pkg_json.write_text(json.dumps(pkg_data, indent=2), encoding="utf-8");
         console.print("  ✔ Created package.json", style="success");
+    }
+    if not packages {
+        _run_manifest_install(project_dir);
+        return;
     }
     (npm_ok, _) = _check_command_available(["npm", "--version"]);
     if npm_ok {

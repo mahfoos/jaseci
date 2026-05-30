@@ -31,6 +31,7 @@ import os;
 import from pathlib { Path }
 import from typing { Optional }
 import from jaclang.cli.console { console }
+import from jac_client.plugin.src.targets.build_common { artifact_mtime }
 import from jac_client.plugin.src.targets.react_native.common {
     SUBPROCESS_TIMEOUT_BUILD,
     resolve_npx
@@ -81,11 +82,6 @@ glob _SUPPORTED_HTML_TAGS = {
          "asset:/",
          "/"
      ];
-
-"""Artifact sort helper used by all native build backends."""
-def _artifact_mtime(path: Path) -> float {
-    return float(path.stat().st_mtime);
-}
 
 """Yield compiled app JS files, excluding runtime helper modules."""
 def _iter_user_js_files(compiled_dir: Path) -> list[Path] {
@@ -624,7 +620,7 @@ def run_gradle_assemble(rn_dir: Path, release: bool = False) -> Path {
             f"{android_dir / 'app' / 'build' / 'outputs'}"
         );
     }
-    candidates.sort(key=_artifact_mtime, reverse=True);
+    candidates.sort(key=artifact_mtime, reverse=True);
     return candidates[0];
 }
 
@@ -716,7 +712,7 @@ def run_xcodebuild_ios(rn_dir: Path, release: bool = False) -> Path {
             f"{derived_data / 'Build' / 'Products'}"
         );
     }
-    app_candidates.sort(key=_artifact_mtime, reverse=True);
+    app_candidates.sort(key=artifact_mtime, reverse=True);
     app_path = app_candidates[0];
 
     dist_dir = rn_dir / "dist";
@@ -771,7 +767,7 @@ def run_eas_local_build(
         if f.is_file()
     ];
     if candidates {
-        candidates.sort(key=_artifact_mtime, reverse=True);
+        candidates.sort(key=artifact_mtime, reverse=True);
         return candidates[0];
     }
     raise RuntimeError(

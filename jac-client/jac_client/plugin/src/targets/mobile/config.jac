@@ -3,6 +3,7 @@ import json;
 import os;
 import from pathlib { Path }
 import from jaclang.cli.console { console }
+import from jac_client.plugin.src.config_loader { JacClientConfig }
 import from jac_client.plugin.src.mobile_setup_env { MOBILE_SETUP_PLATFORM_ENV }
 import from jac_client.plugin.src.targets.mobile.common {
     DEFAULT_APP_ID,
@@ -13,18 +14,7 @@ import from jac_client.plugin.src.targets.mobile.common {
 
 """Load mobile config from jac.toml."""
 def _load_mobile_config(project_dir: Path) -> dict {
-    try {
-        import tomllib;
-        toml_path = project_dir / "jac.toml";
-        if toml_path.exists() {
-            content = toml_path.read_text(encoding="utf-8");
-            config = tomllib.loads(content);
-            return config.get("plugins", {}).get("client", {}).get("mobile", {});
-        }
-    } except Exception {
-        ;
-    }
-    return {};
+    return JacClientConfig(project_dir).get_mobile_config();
 }
 
 """Resolve mobile setup mode (android, ios, all).

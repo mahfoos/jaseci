@@ -8,23 +8,14 @@ Config knobs:
   - ``eas_update`` + ``eas_update_branch`` (opt-in OTA publish)
 """
 import from pathlib { Path }
+import from jac_client.plugin.src.config_loader { JacClientConfig }
 
 glob _RN_BUILDERS_ANDROID = {"gradle", "eas"},
      _RN_BUILDERS_IOS = {"xcodebuild", "eas"};
 
 """Load ``[plugins.client.react_native]`` from jac.toml."""
 def _load_react_native_config(project_dir: Path) -> dict {
-    try {
-        import tomllib;
-        toml_path = project_dir / "jac.toml";
-        if toml_path.exists() {
-            cfg = tomllib.loads(toml_path.read_text(encoding="utf-8"));
-            return cfg.get("plugins", {}).get("client", {}).get("react_native", {});
-        }
-    } except Exception {
-        ;
-    }
-    return {};
+    return JacClientConfig(project_dir).get_react_native_config();
 }
 
 """Parse truthy/falsy values from bool/string/int config entries."""
