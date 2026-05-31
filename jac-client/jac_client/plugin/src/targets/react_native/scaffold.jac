@@ -354,7 +354,6 @@ def _build_gitignore -> str {
         "jac-src/\n"
         "jac-assets/\n"
         "jac-asset-registry.js\n"
-        "package-lock.json\n"
         ".eas-managed\n"
         "*.tsbuildinfo\n"
         ".DS_Store\n"
