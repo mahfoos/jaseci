@@ -52,6 +52,8 @@ class ViteCompiler {
         extract_globals_func: Callable[([any, ModuleType], dict[(str, Any)])]
     );
 
+    has jac_client_compiler: JacClientCompiler;
+
     # ---- forwarders to inner JacClientCompiler (back-compat surface) ----
     def _get_client_dir(self: ViteCompiler) -> Path;
     def _jac_path_to_js(self: ViteCompiler, rel_str: str) -> str;

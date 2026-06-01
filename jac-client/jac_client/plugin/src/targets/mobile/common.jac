@@ -1,5 +1,4 @@
 """Shared constants and low-level helpers for the mobile (Capacitor) target."""
-import json;
 import re;
 import subprocess;
 import from pathlib { Path }
@@ -8,6 +7,12 @@ import from jaclang.cli.console { console }
 import from jac_client.plugin.src.targets.build_common {
     SUBPROCESS_TIMEOUT_BUILD_MOBILE,
     SUBPROCESS_TIMEOUT_SHORT
+}
+import from jac_client.plugin.src.targets.node_tooling_common {
+    check_command_available as _node_check_command_available,
+    resolve_npx_or_bunx as _node_resolve_npx_or_bunx,
+    run_install_cmd as _node_run_install_cmd,
+    run_manifest_install as _node_run_manifest_install
 }
 
 # ==============================================================================
@@ -26,13 +31,7 @@ glob DEFAULT_APP_ID = "com.jac.app",
 def _check_command_available(
     cmd: list[str], timeout: int = SUBPROCESS_TIMEOUT_SHORT
 ) -> tuple[bool, str | None] {
-    try {
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout);
-        if result.returncode == 0 {
-            return (True, result.stdout.strip());
-        }
-    } except Exception { }
-    return (False, None);
+    return _node_check_command_available(cmd, timeout=timeout);
 }
 
 """Parse major Java version from `java -version` / `javac -version` output.
@@ -123,18 +122,7 @@ def _normalize_mobile_platform(platform: Optional[str] = None) -> str {
 
 """Resolve npx command prefix."""
 def _resolve_npx -> str {
-    (ok, _) = _check_command_available(["npx", "--version"]);
-    if ok {
-        return "npx";
-    }
-    (ok, _) = _check_command_available(["bunx", "--version"]);
-    if ok {
-        return "bunx";
-    }
-    raise RuntimeError(
-        "npx or bunx not found. Install Node.js (https://nodejs.org) "
-        "or Bun (https://bun.sh)."
-    );
+    return _node_resolve_npx_or_bunx();
 }
 
 """Run a Capacitor CLI command from project root."""
@@ -147,49 +135,14 @@ def _run_cap_cmd(project_dir: Path, args: list[str], label: str) {
 
 """Install all dependencies from an existing package.json manifest."""
 def _run_manifest_install(project_dir: Path) {
-    (npm_ok, _) = _check_command_available(["npm", "--version"]);
-    if npm_ok {
-        cmd = ["npm", "install"];
-    } else {
-        cmd = ["bun", "install"];
-    }
-    console.print(f"  Installing dependencies in {project_dir.name}...", style="muted");
-    subprocess.run(cmd, cwd=project_dir, check=True, capture_output=False);
+    _node_run_manifest_install(project_dir);
 }
 
 """Run an npm/bun install command."""
 def _run_install_cmd(project_dir: Path, packages: list[str], dev: bool = False) {
-    pkg_json = project_dir / "package.json";
-    if not pkg_json.exists() {
-        pkg_data = {
-            "name": "jac-mobile-app",
-            "version": "1.0.0",
-            "private": True,
-            "type": "module"
-        };
-        pkg_json.write_text(json.dumps(pkg_data, indent=2), encoding="utf-8");
-        console.print("  ✔ Created package.json", style="success");
-    }
-    if not packages {
-        _run_manifest_install(project_dir);
-        return;
-    }
-    (npm_ok, _) = _check_command_available(["npm", "--version"]);
-    if npm_ok {
-        cmd = ["npm", "install"];
-        if dev {
-            cmd.append("--save-dev");
-        }
-        cmd.extend(packages);
-    } else {
-        cmd = ["bun", "add"];
-        if dev {
-            cmd.append("--dev");
-        }
-        cmd.extend(packages);
-    }
-    console.print(f"  Installing: {' '.join(packages)}", style="muted");
-    subprocess.run(cmd, cwd=project_dir, check=True, capture_output=False);
+    _node_run_install_cmd(
+        project_dir, packages, dev=dev, default_package_name="jac-mobile-app"
+    );
 }
 
 """Allow http:// LAN dev URLs in the WebView (Android 9+ blocks cleartext by default)."""

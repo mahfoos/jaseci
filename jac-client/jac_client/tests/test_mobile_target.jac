@@ -89,7 +89,7 @@ test "cli exposes mobile dev flags and cap live-reload" {
     assert "--live-reload" in mobile;
     assert "_mobile_start_backend_server" in mobile;
     assert "def _mobile_setup_android_port_reverse" in mobile;
-    assert '["adb", "reverse"' in mobile;
+    assert "setup_android_port_reverse_common" in mobile;
     assert "resolve_mobile_dev_host(plat, host_override)" in mobile_impl;
     assert "resolve_mobile_vite_port(project_dir, port)" in mobile_impl;
     assert "_mobile_setup_android_port_reverse(vite_port, server_port)" in mobile_impl;

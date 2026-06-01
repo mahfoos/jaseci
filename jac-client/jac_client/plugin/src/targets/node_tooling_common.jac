@@ -41,6 +41,13 @@ def run_manifest_install(project_dir: Path) {
     if npm_ok {
         cmd = ["npm", "install"];
     } else {
+        (bun_ok, _) = check_command_available(["bun", "--version"]);
+        if not bun_ok {
+            raise RuntimeError(
+                "Neither npm nor bun is installed. Install Node.js "
+                "(https://nodejs.org) or Bun (https://bun.sh)."
+            );
+        }
         cmd = ["bun", "install"];
     }
     console.print(f"  Installing dependencies in {project_dir.name}...", style="muted");
@@ -77,6 +84,13 @@ def run_install_cmd(
         }
         cmd.extend(packages);
     } else {
+        (bun_ok, _) = check_command_available(["bun", "--version"]);
+        if not bun_ok {
+            raise RuntimeError(
+                "Neither npm nor bun is installed. Install Node.js "
+                "(https://nodejs.org) or Bun (https://bun.sh)."
+            );
+        }
         cmd = ["bun", "add"];
         if dev {
             cmd.append("--dev");
