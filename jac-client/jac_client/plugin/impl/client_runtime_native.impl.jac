@@ -68,7 +68,13 @@ impl __jacNativeCreate(tag: any, props: dict = {}, children: any = []) -> JsxEle
         return React.createElement.apply(React, args);
     }
     if tag == "button" {
-        textChild = React.createElement.apply(React, _prepend_args(RNText, None, flat));
+        # A web <button> cascades font/color to its label text; RNPressable
+        # does not. Forward the element's text-style props to the inner
+        # RNText so `<button style={{color: "white"}}>` works on native too.
+        text_props = {"style": _textStyleFrom(adapted["style"])};
+        textChild = React.createElement.apply(
+            React, _prepend_args(RNText, text_props, flat)
+        );
         return React.createElement(RNPressable, adapted, textChild);
     }
     if tag == "input" or tag == "textarea" {
@@ -141,6 +147,45 @@ impl _adaptProps(tag: str, props: dict) -> dict {
             continue;
         } else {
             out[key] = value;
+        }
+    }
+    return out;
+}
+
+"""Extract RNText-compatible style props from a (possibly array) style.
+
+``RNView``/``RNPressable`` ignore text props like ``color`` and
+``fontSize`` — those only take effect on ``RNText``. ``button``/``Link``
+render their label inside an inner ``RNText``, so we lift the text-relevant
+keys from the element's style onto that label to match web cascade.
+"""
+impl _textStyleFrom(style: any) -> dict {
+    out = {};
+    if style == None or style == undefined {
+        return out;
+    }
+    text_keys = [
+        "color",
+        "fontSize",
+        "fontWeight",
+        "fontFamily",
+        "fontStyle",
+        "lineHeight",
+        "letterSpacing",
+        "textAlign",
+        "textDecorationLine",
+        "textTransform"
+    ];
+    sources = style if Array.isArray(style) else [style];
+    for src in sources {
+        if src == None or src == undefined {
+            continue;
+        }
+        for key in text_keys {
+            value = src[key];
+            if value != None and value != undefined {
+                out[key] = value;
+            }
         }
     }
     return out;
@@ -583,7 +628,12 @@ impl __nativeLink(props: dict = {}) -> JsxElement {
         nav_fn(to, {"replace": props.replace == True});
     };
     children = _toChildrenArray(props.children or to);
-    label = React.createElement.apply(React, _prepend_args(RNText, None, children));
+    # Forward text-style props (color/fontSize/...) to the label text so a
+    # styled <Link style={{color: "#2563eb"}}> renders a colored link, not
+    # default-black text inside an unstyled Pressable.
+    label = React.createElement.apply(
+        React, _prepend_args(RNText, {"style": _textStyleFrom(rest["style"])}, children)
+    );
     return React.createElement(RNPressable, rest, label);
 }
 

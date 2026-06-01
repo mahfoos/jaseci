@@ -113,9 +113,11 @@ def _write_if_managed(
 
 """Build the package.json contents pinned to known-good versions."""
 def _build_package_json(app_slug: str) -> str {
-    # Versions: Expo SDK 53 + RN 0.79.x + React 19.x + Hermes default.
-    # `expo install` would normally resolve these; pinning here means
-    # `jac setup react-native` works offline once the packages are cached.
+    # Versions: Expo SDK 54 + RN 0.81.x + React 19.1.x + Hermes default.
+    # Pins mirror Expo SDK 54's bundledNativeModules.json so the scaffold
+    # matches the current Expo Go client. `expo install` would normally
+    # resolve these; pinning here means `jac setup react-native` works
+    # offline once the packages are cached.
     pkg = {
         "name": app_slug,
         "version": "1.0.0",
@@ -132,17 +134,17 @@ def _build_package_json(app_slug: str) -> str {
             # materializes the ExpoAsset native module in Android/iOS.
             # Relying on expo's transitive dep can trigger runtime
             # "Cannot find native module 'ExpoAsset'" in fresh scaffolds.
-            "expo-asset": "~11.1.7",
-            "expo-constants": "~17.1.8",
-            "expo-secure-store": "~14.2.4",
-            "expo-status-bar": "~2.2.3",
-            "react": "19.0.0",
+            "expo-asset": "~12.0.7",
+            "expo-constants": "~18.0.7",
+            "expo-secure-store": "~15.0.6",
+            "expo-status-bar": "~3.0.7",
+            "react": "19.1.0",
             "react-native": REACT_NATIVE_VERSION,
             "@react-navigation/native": "^7.1.14",
             "@react-navigation/native-stack": "^7.3.21",
-            "react-native-gesture-handler": "~2.24.0",
-            "react-native-safe-area-context": "5.4.0",
-            "react-native-screens": "~4.11.1",
+            "react-native-gesture-handler": "~2.28.0",
+            "react-native-safe-area-context": "5.6.0",
+            "react-native-screens": "~4.16.0",
             "react-error-boundary": "^4.1.2",
             "react-hook-form": "^7.54.0",
             "@hookform/resolvers": "^3.10.0",
@@ -150,8 +152,13 @@ def _build_package_json(app_slug: str) -> str {
         },
         "devDependencies": {
             "@babel/core": "^7.25.0",
-            "@types/react": "~19.0.10",
-            "typescript": "~5.8.3"
+            # babel.config.js uses the `babel-preset-expo` preset. Under
+            # SDK 53 it resolved transitively via expo; SDK 54's install
+            # layout no longer hoists it, so pin it explicitly or Metro
+            # fails with "Cannot find module 'babel-preset-expo'".
+            "babel-preset-expo": "~54.0.0",
+            "@types/react": "~19.1.0",
+            "typescript": "~5.9.2"
         }
     };
     return json.dumps(pkg, indent=2) + "\n";
@@ -159,7 +166,7 @@ def _build_package_json(app_slug: str) -> str {
 
 def _build_app_json(app_slug: str, app_id: str, app_name: str) -> str {
     # D8: newArchEnabled=true ships Fabric + TurboModules + bridgeless.
-    # ``jsEngine: "hermes"`` is also default in Expo SDK 53 but spelled
+    # ``jsEngine: "hermes"`` is also default in Expo SDK 54 but spelled
     # explicitly so a future Expo default flip can't silently regress.
     cfg = {
         "expo": {
@@ -187,30 +194,34 @@ def _build_metro_config(compiled_dir_rel: str) -> str {
     # trigger Fast Refresh without copying files around.
     # ``extraNodeModules`` is the canonical Metro hook for aliasing —
     # babel-plugin-module-resolver works too but adds another build step.
+    # NOTE: ``compiled_dir_rel`` is intentionally unused. We deliberately do
+    # NOT point Metro at ``.jac/client/compiled`` — see the alias comment
+    # below for why the *staged* copy is used instead.
+    _ = compiled_dir_rel;
     return (
         _SCAFFOLD_MARKER + "\n"
         "const { getDefaultConfig } = require('expo/metro-config');\n"
         "const path = require('path');\n"
         "\n"
         "const projectRoot = __dirname;\n"
-        f"const compiledDir = path.resolve(projectRoot, {compiled_dir_rel!r});\n"
         "\n"
         "const config = getDefaultConfig(projectRoot);\n"
         "\n"
-        "// Watch the Jac-compiled JS bundle so edits to .cl.jac files\n"
-        "// trigger Metro Fast Refresh once `jac start --dev` is wired up.\n"
-        "config.watchFolders = [...(config.watchFolders || []), compiledDir];\n"
-        "\n"
-        "// Alias `@jac/runtime` -> compiled/client_runtime.js so the bundle's\n"
-        "// import resolves to the native runtime that ReactNativeTarget.build wrote.\n"
+        "// Resolve `@jac/runtime` to the *staged* native runtime that the\n"
+        "// build copies into mobile-rn/jac-src/. This deliberately does NOT\n"
+        "// point at the shared .jac/client/compiled dir: during `jac start\n"
+        "// --dev` the Jac API backend rebuilds the *web* client into that\n"
+        "// same dir, which would overwrite client_runtime.js with a\n"
+        "// react-dom / react-router-dom bundle and break the native Metro\n"
+        "// graph (`Unable to resolve react-dom/client`). jac-src lives inside\n"
+        "// the Expo project and is only written by the native build/HMR, so\n"
+        "// it stays isolated. Metro watches projectRoot by default, so\n"
+        "// re-staging on a .cl.jac save still triggers Fast Refresh.\n"
         "config.resolver = config.resolver || {};\n"
         "config.resolver.extraNodeModules = {\n"
         "  ...(config.resolver.extraNodeModules || {}),\n"
-        "  '@jac/runtime': path.resolve(compiledDir, 'client_runtime.js'),\n"
+        "  '@jac/runtime': path.resolve(projectRoot, 'jac-src', 'client_runtime.js'),\n"
         "};\n"
-        "// Without ``nodeModulesPaths`` set explicitly Metro fails to resolve\n"
-        "// React etc. from the aliased dir because they live in the Expo\n"
-        "// project's node_modules, not in .jac/client/compiled.\n"
         "config.resolver.nodeModulesPaths = [\n"
         "  path.resolve(projectRoot, 'node_modules'),\n"
         "  ...(config.resolver.nodeModulesPaths || []),\n"
@@ -371,6 +382,11 @@ def write_expo_scaffold(
     app_id: str = DEFAULT_APP_ID
 ) -> bool {
     rn_dir.mkdir(parents=True, exist_ok=True);
+    # Expo Go requests the app icon under ``assets/`` even when app.json
+    # declares none. Without the directory Metro's asset server throws
+    # ENOENT on ``scandir 'assets'`` and spams the dev log. An empty dir
+    # turns that into a graceful 404.
+    (rn_dir / "assets").mkdir(parents=True, exist_ok=True);
 
     # Compute the Metro watch path relative to the Expo project dir so the
     # config is portable (works regardless of where the user clones the

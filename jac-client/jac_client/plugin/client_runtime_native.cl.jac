@@ -66,21 +66,30 @@ glob _VIEW_TAGS = [
      _UNMAPPED_WARNED = {},
      _RELATIVE_IMG_SRC_WARNED = {},
      _JAC_NATIVE_OUTLET_CONTEXT = React.createContext(None),
-     _JAC_NATIVE_STACK = jacCreateNativeStackNavigator(),
-     useState:pub = reactUseState,
-     useEffect:pub = reactUseEffect,
-     Router:pub = __nativeRouter,
-     Routes:pub = __nativeRoutes,
-     Route:pub = __nativeRoute,
-     Link:pub = __nativeLink,
-     Navigate:pub = __nativeNavigate,
-     Outlet:pub = __nativeOutlet,
-     JacClientErrorBoundary:pub = ErrorBoundary,
-     JacSchema:pub = __createJacSchema(z);
+     _JAC_NATIVE_STACK = jacCreateNativeStackNavigator();
+
+# Public runtime aliases. Declared as a block-level ``glob:pub`` (mirroring
+# the web runtime) so EVERY entry is exported. The per-name ``:pub`` form on
+# a plain ``glob`` silently dropped aliases whose RHS is an imported binding
+# (``useState``/``useEffect``) or a call expression (``JacSchema``) from the
+# emitted ``export {...}``, leaving ``@jac/runtime`` without ``useState`` on
+# native — components compiled with ``has`` state then crashed with
+# "useState is not a function".
+glob:pub useState = reactUseState,
+     useEffect = reactUseEffect,
+     Router = __nativeRouter,
+     Routes = __nativeRoutes,
+     Route = __nativeRoute,
+     Link = __nativeLink,
+     Navigate = __nativeNavigate,
+     Outlet = __nativeOutlet,
+     JacClientErrorBoundary = ErrorBoundary,
+     JacSchema = __createJacSchema(z);
 
 def _adaptProps(tag: str, props: dict) -> dict;
 def _isAbsoluteImageUri(src: str) -> bool;
 def _adaptImageProps(props: dict) -> dict;
+def _textStyleFrom(style: any) -> dict;
 def _prepend_args(comp: any, props: any, children: list) -> list;
 def _makeNativeLink(props: dict, children: list) -> JsxElement;
 def _toChildrenArray(children: any) -> list;

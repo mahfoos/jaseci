@@ -1462,7 +1462,7 @@ test "react native scaffold includes EAS docs pointer in setup output" {
 """End-to-end test: scaffold → compile → expo prebuild → Gradle assembleDebug.
 
 Requires Android SDK + Java JDK on PATH. Skipped unless JAC_RN_E2E=1 is set.
-Validates that the pinned RN 0.79.x stack produces a working Gradle build
+Validates that the pinned RN 0.81.x stack produces a working Gradle build
 with a real APK artifact.
 """
 test "e2e: react-native android build produces APK" {
