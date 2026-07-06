@@ -2374,7 +2374,7 @@ impl TypeEvaluator._assign_class(
     }
     src_type = unwrapped_src;
     dest_type = unwrapped_dest;
-    if src_type.shared == dest_type.shared {
+    if src_type.shared.same_class(dest_type.shared) {
         if dest_type.is_literal_type() {
             if not src_type.is_literal_type() {
                 return False;
@@ -2518,7 +2518,7 @@ impl TypeEvaluator.is_sub_class(
         type_utils.compute_mro_linearization(sub_cls);
     }
     for cls in sub_cls.shared.mro {
-        if cls.shared == super_cls.shared {
+        if cls.shared.same_class(super_cls.shared) {
             return True;
         }
     }
@@ -4389,7 +4389,7 @@ impl TypeEvaluator.exclude_type_from_union(
         }
         for excl_t in to_exclude_list {
             if isinstance(excl_t, types.ClassType) {
-                exclude_shareds.add(id(excl_t.shared));
+                exclude_shareds.add(excl_t.shared.canonical_key() or id(excl_t.shared));
             } else {
                 exclude_ids.add(id(excl_t));
             }
@@ -4397,7 +4397,7 @@ impl TypeEvaluator.exclude_type_from_union(
         remaining: list[TypeBase] = [];
         for t in original.types {
             if isinstance(t, types.ClassType) {
-                if id(t.shared) in exclude_shareds {
+                if (t.shared.canonical_key() or id(t.shared)) in exclude_shareds {
                     continue;
                 }
             } elif id(t) in exclude_ids {
@@ -4416,7 +4416,7 @@ impl TypeEvaluator.exclude_type_from_union(
 
     if isinstance(original, types.ClassType)
     and isinstance(to_exclude, types.ClassType)
-    and original.shared == to_exclude.shared {
+    and original.shared.same_class(to_exclude.shared) {
         return types.NeverType();
     }
 
