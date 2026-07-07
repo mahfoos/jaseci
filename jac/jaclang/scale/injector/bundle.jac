@@ -1,5 +1,6 @@
 import io;
 import os;
+import gzip;
 import hashlib;
 import logging;
 import shutil;
@@ -172,6 +173,25 @@ def sanitized_jac_toml(base: Path, provisioned_database: str = "") -> (str | Non
 }
 
 
+def det_tar_member(info: tarfile.TarInfo) -> tarfile.TarInfo {
+    # Bundles are content-addressed; wall-clock mtimes and uid/gid would give
+    # identical content a new digest every deploy, defeating seed skip-if-present.
+    info.mtime = 0;
+    info.uid = 0;
+    info.gid = 0;
+    info.uname = "";
+    info.gname = "";
+    return info;
+}
+
+
+def open_det_tar(buf: io.BytesIO) -> tuple[tarfile.TarFile, any] {
+    # gzip stamps the current time into its header - zero it for determinism.
+    gz = gzip.GzipFile(fileobj=buf, mode="wb", mtime=0);
+    return (tarfile.open(fileobj=gz, mode="w"), gz);
+}
+
+
 def _precompile_app(base: Path, pod_binary: bytes) -> (Path | None) {
     # Precompile the app's modules with the POD binary so pods load content-keyed
     # .jir from _precompiled/ instead of cold-compiling on first boot (#7179).
@@ -238,38 +258,43 @@ def pack_source(
         staged = _precompile_app(base, pod_binary);
     }
     buf = io.BytesIO();
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar {
-        for path in sorted(base.rglob("*")) {
-            if not path.is_file() {
-                continue;
-            }
-            rel = path.relative_to(base);
-            if is_excluded(rel) {
-                continue;
-            }
-            tar.add(str(path), arcname=str(rel));
-        }
-        if staged is not None {
-            pre = staged / "_precompiled";
-            count = 0;
-            for path in sorted(pre.rglob("*")) {
-                if path.is_file() {
-                    rel = path.relative_to(staged);
-                    tar.add(str(path), arcname=str(rel));
-                    count += 1;
+    (tar, gz) = open_det_tar(buf);
+    try {
+        with tar {
+            for path in sorted(base.rglob("*")) {
+                if not path.is_file() {
+                    continue;
                 }
+                rel = path.relative_to(base);
+                if is_excluded(rel) {
+                    continue;
+                }
+                tar.add(str(path), arcname=str(rel), filter=det_tar_member);
             }
-            logger.info(f"Bundled {count} precompiled app-module artifacts.");
-            # staged is <stage_root>/app; remove the whole mkdtemp tree, not just the child.
-            shutil.rmtree(str(staged.parent), ignore_errors=True);
+            if staged is not None {
+                pre = staged / "_precompiled";
+                count = 0;
+                for path in sorted(pre.rglob("*")) {
+                    if path.is_file() {
+                        rel = path.relative_to(staged);
+                        tar.add(str(path), arcname=str(rel), filter=det_tar_member);
+                        count += 1;
+                    }
+                }
+                logger.info(f"Bundled {count} precompiled app-module artifacts.");
+                # staged is <stage_root>/app; remove the whole mkdtemp tree, not just the child.
+                shutil.rmtree(str(staged.parent), ignore_errors=True);
+            }
+            sanitized = sanitized_jac_toml(base, provisioned_database);
+            if sanitized is not None {
+                data = sanitized.encode("utf-8");
+                info = tarfile.TarInfo(name="jac.toml");
+                info.size = len(data);
+                tar.addfile(info, io.BytesIO(data));
+            }
         }
-        sanitized = sanitized_jac_toml(base, provisioned_database);
-        if sanitized is not None {
-            data = sanitized.encode("utf-8");
-            info = tarfile.TarInfo(name="jac.toml");
-            info.size = len(data);
-            tar.addfile(info, io.BytesIO(data));
-        }
+    } finally {
+        gz.close();
     }
     return buf.getvalue();
 }
