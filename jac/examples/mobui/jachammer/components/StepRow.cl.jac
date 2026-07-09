@@ -7,7 +7,8 @@ cl {
 
     def:pub StepRow(idx: int, label: str) -> JsxElement {
         s = useStudio();
-        styles = s["styles"]; C = s["C"];
+        styles = s["styles"];
+        C = s["C"];
         prodStep: int = s["prodStep"];
         done = prodStep > idx;
         hereNow = prodStep == idx;
@@ -15,9 +16,26 @@ cl {
         return
             <View style={styles.stepRow}>
                 <View style={[styles.stepDot, {backgroundColor: bg}]}>
-                    {(<Icon name="check" size={12} color={C.accentText} fill={False} width={2}/>)
+                    {(
+                        <Icon
+                            name="check"
+                            size={12}
+                            color={C.accentText}
+                            fill={False}
+                            width={2}
+                        />
+                    )
                         if done
-                        else (<Text style={[styles.pillText, {color: (C.accentText if hereNow else C.muted)}]}>{idx}</Text>)}
+                        else (
+                            <Text
+                                style={[
+                                    styles.pillText,
+                                    {color: (C.accentText if hereNow else C.muted)}
+                                ]}
+                            >
+                                {idx}
+                            </Text>
+                        )}
                 </View>
                 <Text style={styles.stepText}>{label}</Text>
             </View>;

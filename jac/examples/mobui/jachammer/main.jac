@@ -30,8 +30,14 @@ cl {
     import from .screens.AppShell { AppShell }
     import from .screens.BillingScreen { BillingScreen }
     import from .screens.Sheets {
-        NewModal, NotifsSheet, ModelSheet, ProjMenu, RenameSheet, ShareSheet,
-        DeleteSheet, FileSheet
+        NewModal,
+        NotifsSheet,
+        ModelSheet,
+        ProjMenu,
+        RenameSheet,
+        ShareSheet,
+        DeleteSheet,
+        FileSheet
     }
     import from .components.SsoModal { SsoModal }
 
@@ -50,21 +56,24 @@ cl {
             <View style={[styles.root, rootExtra]}>
                 {<SplashScreen/>
                     if (screen == "splash")
-                    else (<AuthScreen/> if (screen == "auth") else <AppShell/>)}
-                {<NewModal/> if s["showNew"] else <View/>}
-                {<NotifsSheet/> if s["notifOpen"] else <View/>}
-                {<ModelSheet/> if s["modelSheet"] else <View/>}
-                {<ProjMenu/> if (s["projMenu"] != "") else <View/>}
-                {<RenameSheet/> if (s["renameId"] != "") else <View/>}
-                {<ShareSheet/> if (s["shareId"] != "") else <View/>}
-                {<DeleteSheet/> if (s["deleteId"] != "") else <View/>}
-                {<FileSheet/> if (s["fileView"] != "") else <View/>}
-                {<BillingScreen/> if s["billingOpen"] else <View/>}
-                {<SsoModal/> if (s["ssoUrl"] != "") else <View/>}
+                    else (<AuthScreen/> if (screen == "auth") else <AppShell/>)}{<NewModal/>
+                    if s["showNew"]
+                    else <View/>}{<NotifsSheet/> if s["notifOpen"] else <View/>}{<ModelSheet/>
+                    if s["modelSheet"]
+                    else <View/>}{<ProjMenu/> if (s["projMenu"] != "") else <View/>}{<RenameSheet/>
+                    if (s["renameId"] != "")
+                    else <View/>}{<ShareSheet/> if (s["shareId"] != "") else <View/>}{<DeleteSheet/>
+                    if (s["deleteId"] != "")
+                    else <View/>}{<FileSheet/> if (s["fileView"] != "") else <View/>}{<BillingScreen/>
+                    if s["billingOpen"]
+                    else <View/>}{<SsoModal/> if (s["ssoUrl"] != "") else <View/>}
             </View>;
     }
 
     def:pub app -> JsxElement {
-        return <StudioProvider><Root/></StudioProvider>;
+        return
+            <StudioProvider>
+                <Root/>
+            </StudioProvider>;
     }
 }

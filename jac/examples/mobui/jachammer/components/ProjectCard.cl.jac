@@ -9,31 +9,75 @@ cl {
 
     def:pub ProjectCard(p: any) -> JsxElement {
         s = useStudio();
-        styles = s["styles"]; C = s["C"];
+        styles = s["styles"];
+        C = s["C"];
         return
             <View style={styles.card} key={p["id"]}>
                 <View style={styles.cardTop}>
-                    <Pressable style={styles.cardIcon} onPress={lambda { s["openProject"](p["id"]); }}>
-                        <Icon name="box" size={22} color={C.accent} fill={False} width={2}/>
+                    <Pressable
+                        style={styles.cardIcon}
+                        onPress={lambda { s["openProject"](p["id"]); }}
+                    >
+                        <Icon
+                            name="box"
+                            size={22}
+                            color={C.accent}
+                            fill={False}
+                            width={2}
+                        />
                     </Pressable>
-                    <Pressable style={styles.cardHeadCol} onPress={lambda { s["openProject"](p["id"]); }}>
+                    <Pressable
+                        style={styles.cardHeadCol}
+                        onPress={lambda { s["openProject"](p["id"]); }}
+                    >
                         <Text style={styles.cardName}>{p["name"]}</Text>
                         <View style={styles.cardMetaRow}>
-                            <Icon name="branch" size={12} color={C.muted} fill={False} width={2}/>
-                            <Text style={styles.cardMeta}>{p["branch"]} · {p["template"]}</Text>
+                            <Icon
+                                name="branch"
+                                size={12}
+                                color={C.muted}
+                                fill={False}
+                                width={2}
+                            />
+                            <Text style={styles.cardMeta}>
+                                {p["branch"]} · {p["template"]}
+                            </Text>
                         </View>
                     </Pressable>
                     <StatusPill status={p["status"]}/>
-                    <Pressable style={styles.overflowBtn} onPress={lambda { s["setProjMenu"](p["id"]); }}>
-                        <Icon name="dots" size={18} color={C.muted} fill={False} width={2}/>
+                    <Pressable
+                        style={styles.overflowBtn}
+                        onPress={lambda { s["setProjMenu"](p["id"]); }}
+                    >
+                        <Icon
+                            name="dots"
+                            size={18}
+                            color={C.muted}
+                            fill={False}
+                            width={2}
+                        />
                     </Pressable>
                 </View>
-                {(<Progress pct={p["progress"]}/>) if (p["status"] == "building") else <View/>}
+                {(<Progress pct={p["progress"]}/>)
+                    if (p["status"] == "building")
+                    else <View/>}
                 <View style={styles.cardMetaRow}>
-                    <Icon name="clock" size={12} color={C.faint} fill={False} width={2}/>
+                    <Icon
+                        name="clock"
+                        size={12}
+                        color={C.faint}
+                        fill={False}
+                        width={2}
+                    />
                     <Text style={styles.cardMeta}>Updated {p["updated"]}</Text>
                     <Text style={styles.cardMeta}>·</Text>
-                    <Icon name="server" size={12} color={C.faint} fill={False} width={2}/>
+                    <Icon
+                        name="server"
+                        size={12}
+                        color={C.faint}
+                        fill={False}
+                        width={2}
+                    />
                     <Text style={styles.cardMeta}>{len(p["services"])} services</Text>
                 </View>
             </View>;

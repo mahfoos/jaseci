@@ -12,11 +12,7 @@ cl {
     def:pub SsoModal -> JsxElement {
         s = useStudio();
         url = s["ssoUrl"];
-        useEffect(lambda {
-            if url != "" {
-                globalThis.location.href = url;
-            }
-        }, [url]);
+        useEffect(lambda { if url != "" { globalThis.location.href = url; }}, [url]);
         return <View/>;
     }
 }

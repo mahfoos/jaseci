@@ -1,7 +1,14 @@
 """jachammer entry screens — animated Splash and the Auth (login/signup) form."""
 
 cl {
-    import from "@jac/mobui" { View, Text, Pressable, TextInput, Animated, KeyboardAvoidingView }
+    import from "@jac/mobui" {
+        View,
+        Text,
+        Pressable,
+        TextInput,
+        Animated,
+        KeyboardAvoidingView
+    }
     import from ..ui.icon { Icon }
     import from ..ui.theme { S }
     import from ..hooks.useStudio { useStudio }
@@ -10,13 +17,21 @@ cl {
 
     def:pub SplashScreen -> JsxElement {
         s = useStudio();
-        C = s["C"]; styles = s["styles"]; intro = s["intro"];
+        C = s["C"];
+        styles = s["styles"];
+        intro = s["intro"];
         return
             <View style={styles.splash}>
                 <Animated.View
                     style={{
                         opacity: intro,
-                        transform: [{scale: intro.interpolate({inputRange: [0, 1], outputRange: [0.85, 1]})}],
+                        transform: [
+                            {
+                                scale: intro.interpolate(
+                                    {inputRange: [0, 1], outputRange: [0.85, 1]}
+                                )
+                            }
+                        ],
                         alignItems: "center"
                     }}
                 >
@@ -30,22 +45,50 @@ cl {
 
     def:pub AuthScreen -> JsxElement {
         s = useStudio();
-        C = s["C"]; styles = s["styles"];
-        authMode = s["authMode"]; authError = s["authError"];
-        authUser = s["authUser"]; authPass = s["authPass"]; authPass2 = s["authPass2"];
+        C = s["C"];
+        styles = s["styles"];
+        authMode = s["authMode"];
+        authError = s["authError"];
+        authUser = s["authUser"];
+        authPass = s["authPass"];
+        authPass2 = s["authPass2"];
         isSignup = authMode == "signup";
         return
             <KeyboardAvoidingView style={styles.kav} behavior={s["kbBehavior"]()}>
                 <View style={styles.authWrap}>
-                    <View style={{alignSelf: "center"}}><Logo size={60}/></View>
-                    <Text style={styles.authTitle}>{("Create your account" if isSignup else "Welcome back")}</Text>
-                    <Text style={styles.authSub}>Build, deploy and monitor Jac apps from your pocket.</Text>
-                    <Pressable style={styles.oauthBtn} onPress={lambda { s["oauth"]("google"); }}>
-                        <Icon name="spark" size={16} color={C.text} fill={False} width={2}/>
+                    <View style={{alignSelf: "center"}}>
+                        <Logo size={60}/>
+                    </View>
+                    <Text style={styles.authTitle}>
+                        {("Create your account" if isSignup else "Welcome back")}
+                    </Text>
+                    <Text style={styles.authSub}>
+                        Build, deploy and monitor Jac apps from your pocket.
+                    </Text>
+                    <Pressable
+                        style={styles.oauthBtn}
+                        onPress={lambda { s["oauth"]("google"); }}
+                    >
+                        <Icon
+                            name="spark"
+                            size={16}
+                            color={C.text}
+                            fill={False}
+                            width={2}
+                        />
                         <Text style={styles.oauthText}>Continue with Google</Text>
                     </Pressable>
-                    <Pressable style={styles.oauthBtn} onPress={lambda { s["oauth"]("github"); }}>
-                        <Icon name="branch" size={16} color={C.text} fill={False} width={2}/>
+                    <Pressable
+                        style={styles.oauthBtn}
+                        onPress={lambda { s["oauth"]("github"); }}
+                    >
+                        <Icon
+                            name="branch"
+                            size={16}
+                            color={C.text}
+                            fill={False}
+                            width={2}
+                        />
                         <Text style={styles.oauthText}>Continue with GitHub</Text>
                     </Pressable>
                     <View style={styles.orRow}>
@@ -54,7 +97,13 @@ cl {
                         <View style={styles.orLine}/>
                     </View>
                     <View style={styles.fieldRow}>
-                        <Icon name="at" size={18} color={C.muted} fill={False} width={2}/>
+                        <Icon
+                            name="at"
+                            size={18}
+                            color={C.muted}
+                            fill={False}
+                            width={2}
+                        />
                         <TextInput
                             style={styles.fieldInput}
                             value={authUser}
@@ -65,7 +114,13 @@ cl {
                         />
                     </View>
                     <View style={styles.fieldRow}>
-                        <Icon name="lock" size={18} color={C.muted} fill={False} width={2}/>
+                        <Icon
+                            name="lock"
+                            size={18}
+                            color={C.muted}
+                            fill={False}
+                            width={2}
+                        />
                         <TextInput
                             style={styles.fieldInput}
                             value={authPass}
@@ -77,7 +132,13 @@ cl {
                     </View>
                     {(
                         <View style={styles.fieldRow}>
-                            <Icon name="lock" size={18} color={C.muted} fill={False} width={2}/>
+                            <Icon
+                                name="lock"
+                                size={18}
+                                color={C.muted}
+                                fill={False}
+                                width={2}
+                            />
                             <TextInput
                                 style={styles.fieldInput}
                                 value={authPass2}
@@ -90,18 +151,39 @@ cl {
                     )
                         if isSignup
                         else <View/>}
-                    {(<Text style={styles.errorText}>{authError}</Text>) if (authError != "") else <View/>}
-                    <Pressable style={styles.primaryBtn} onPress={s["submitAuth"]} disabled={s["isBusy"]("auth")}>
+                    {(<Text style={styles.errorText}>{authError}</Text>)
+                        if (authError != "")
+                        else <View/>}
+                    <Pressable
+                        style={styles.primaryBtn}
+                        onPress={s["submitAuth"]}
+                        disabled={s["isBusy"]("auth")}
+                    >
                         {(<Spinner color={C.accentText}/>)
                             if s["isBusy"]("auth")
-                            else (<Text style={styles.primaryLabel}>{("Sign up" if isSignup else "Log in")}</Text>)}
+                            else (
+                                <Text style={styles.primaryLabel}>
+                                    {("Sign up" if isSignup else "Log in")}
+                                </Text>
+                            )}
                     </Pressable>
                     <View style={styles.switchRow}>
                         <Text style={styles.switchText}>
-                            {("Already have an account?" if isSignup else "New to jachammer?")}
+                            {(
+                                "Already have an account?"
+                                    if isSignup
+                                    else "New to jachammer?"
+                            )}
                         </Text>
-                        <Pressable onPress={lambda { s["setAuthMode"]("login" if isSignup else "signup"); s["setAuthError"](""); }}>
-                            <Text style={styles.switchLink}>{("Log in" if isSignup else "Sign up")}</Text>
+                        <Pressable
+                            onPress={lambda {
+                                s["setAuthMode"]("login" if isSignup else "signup");
+                                s["setAuthError"]("");
+                            }}
+                        >
+                            <Text style={styles.switchLink}>
+                                {("Log in" if isSignup else "Sign up")}
+                            </Text>
                         </Pressable>
                     </View>
                 </View>

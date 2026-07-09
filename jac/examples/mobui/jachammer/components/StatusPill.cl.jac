@@ -12,7 +12,9 @@ cl {
         return
             <View style={styles.pill}>
                 <Icon name="dot" size={8} color={col} fill={True} width={2}/>
-                <Text style={[styles.pillText, {color: col}]}>{s["statusLabel"](status)}</Text>
+                <Text style={[styles.pillText, {color: col}]}>
+                    {s["statusLabel"](status)}
+                </Text>
             </View>;
     }
 }

@@ -65,7 +65,6 @@ cl {
                 divider: {height: 1, backgroundColor: C.border},
                 flex1: {flex: 1},
                 kav: {flex: 1, width: "100%"},
-
                 # splash
                 splash: {
                     flex: 1,
@@ -84,7 +83,6 @@ cl {
                 },
                 splashTitle: {color: C.text, fontSize: F.huge, fontWeight: "bold"},
                 splashTag: {color: C.muted, fontSize: F.sm},
-
                 # auth
                 authWrap: {
                     flex: 1,
@@ -157,7 +155,6 @@ cl {
                 orRow: {flexDirection: "row", alignItems: "center", gap: S.sm},
                 orLine: {flex: 1, height: 1, backgroundColor: C.border},
                 orText: {color: C.faint, fontSize: F.xs},
-
                 # buttons
                 primaryBtn: {
                     backgroundColor: C.accent,
@@ -205,7 +202,6 @@ cl {
                     gap: S.sm
                 },
                 dangerLabel: {color: C.danger, fontSize: F.sm, fontWeight: "bold"},
-
                 # header + tab bar
                 header: {
                     flexDirection: "row",
@@ -250,7 +246,6 @@ cl {
                     gap: 2
                 },
                 tabLabel: {fontSize: 11},
-
                 # section label
                 sectionRow: {
                     flexDirection: "row",
@@ -261,8 +256,11 @@ cl {
                 },
                 sectionLabel: {color: C.muted, fontSize: F.sm, fontWeight: "bold"},
                 sectionAction: {flexDirection: "row", alignItems: "center", gap: S.xs},
-                sectionActionText: {color: C.accent, fontSize: F.sm, fontWeight: "bold"},
-
+                sectionActionText: {
+                    color: C.accent,
+                    fontSize: F.sm,
+                    fontWeight: "bold"
+                },
                 # generic card
                 card: {
                     backgroundColor: C.surface,
@@ -286,7 +284,6 @@ cl {
                 cardMetaRow: {flexDirection: "row", alignItems: "center", gap: S.xs},
                 cardMeta: {color: C.muted, fontSize: F.xs},
                 overflowBtn: {padding: S.xs},
-
                 # status pill
                 pill: {
                     flexDirection: "row",
@@ -298,7 +295,6 @@ cl {
                     backgroundColor: C.elevated
                 },
                 pillText: {fontSize: F.xs, fontWeight: "bold"},
-
                 # progress
                 progressTrack: {
                     height: 6,
@@ -306,13 +302,16 @@ cl {
                     backgroundColor: C.track,
                     overflow: "hidden"
                 },
-                progressFill: {height: 6, borderRadius: R.pill, backgroundColor: C.forge},
+                progressFill: {
+                    height: 6,
+                    borderRadius: R.pill,
+                    backgroundColor: C.forge
+                },
                 progressRow: {
                     flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between"
                 },
-
                 # chips
                 chipRow: {flexDirection: "row", flexWrap: "wrap", gap: S.sm},
                 chip: {
@@ -334,7 +333,11 @@ cl {
                     borderRadius: R.pill,
                     backgroundColor: C.accent
                 },
-                chipActiveText: {color: C.accentText, fontSize: F.sm, fontWeight: "bold"},
+                chipActiveText: {
+                    color: C.accentText,
+                    fontSize: F.sm,
+                    fontWeight: "bold"
+                },
                 tag: {
                     paddingVertical: 2,
                     paddingHorizontal: S.sm,
@@ -342,7 +345,6 @@ cl {
                     backgroundColor: C.elevated
                 },
                 tagText: {color: C.muted, fontSize: F.xs},
-
                 # segmented control
                 segRow: {
                     flexDirection: "row",
@@ -358,7 +360,11 @@ cl {
                 },
                 segItemActive: {backgroundColor: C.accent},
                 segText: {color: C.muted, fontSize: F.xs, fontWeight: "600"},
-                segTextActive: {color: C.accentText, fontSize: F.xs, fontWeight: "bold"},
+                segTextActive: {
+                    color: C.accentText,
+                    fontSize: F.xs,
+                    fontWeight: "bold"
+                },
                 sortPill: {
                     flexDirection: "row",
                     alignItems: "center",
@@ -369,7 +375,6 @@ cl {
                     borderWidth: 1,
                     borderColor: C.border
                 },
-
                 # detail
                 detailHead: {
                     padding: S.lg,
@@ -411,8 +416,12 @@ cl {
                     borderBottomWidth: 1,
                     borderBottomColor: C.border
                 },
-                panelTitle: {color: C.text, fontSize: F.sm, fontWeight: "bold", flex: 1},
-
+                panelTitle: {
+                    color: C.text,
+                    fontSize: F.sm,
+                    fontWeight: "bold",
+                    flex: 1
+                },
                 # rows
                 row: {
                     flexDirection: "row",
@@ -434,11 +443,14 @@ cl {
                 rowTitle: {color: C.text, fontSize: F.sm, fontWeight: "600"},
                 rowMeta: {color: C.muted, fontSize: F.xs},
                 optionLabel: {color: C.text, fontSize: F.sm, flex: 1},
-
                 # logs / code
                 logBox: {backgroundColor: "#05070b", padding: S.md, gap: 2},
                 logLine: {color: C.muted, fontSize: F.xs, fontFamily: "monospace"},
-                codeBox: {backgroundColor: "#05070b", padding: S.md, borderRadius: R.md},
+                codeBox: {
+                    backgroundColor: "#05070b",
+                    padding: S.md,
+                    borderRadius: R.md
+                },
                 codeLine: {
                     color: "#e6e9ef",
                     fontSize: 13,
@@ -446,7 +458,6 @@ cl {
                     lineHeight: 20
                 },
                 monoSmall: {color: C.text, fontSize: F.xs, fontFamily: "monospace"},
-
                 # community
                 commCard: {
                     backgroundColor: C.surface,
@@ -465,7 +476,6 @@ cl {
                     justifyContent: "space-between",
                     marginTop: S.xs
                 },
-
                 # activity
                 actIcon: {
                     width: 38,
@@ -477,7 +487,6 @@ cl {
                 },
                 actText: {color: C.text, fontSize: F.sm, lineHeight: 20},
                 actMeta: {color: C.faint, fontSize: F.xs},
-
                 # profile
                 profHead: {alignItems: "center", gap: S.sm, padding: S.xl},
                 profAvatar: {
@@ -503,7 +512,6 @@ cl {
                     textAlign: "center"
                 },
                 statLabel: {color: C.muted, fontSize: F.xs, textAlign: "center"},
-
                 # toggle
                 switchTrack: {
                     width: 46,
@@ -521,7 +529,6 @@ cl {
                     borderRadius: R.pill,
                     backgroundColor: "#ffffff"
                 },
-
                 # notifications badge
                 badge: {
                     position: "absolute",
@@ -536,8 +543,12 @@ cl {
                     paddingHorizontal: 3
                 },
                 badgeText: {color: C.forgeText, fontSize: 10, fontWeight: "bold"},
-                unreadDot: {width: 9, height: 9, borderRadius: R.pill, backgroundColor: C.accent},
-
+                unreadDot: {
+                    width: 9,
+                    height: 9,
+                    borderRadius: R.pill,
+                    backgroundColor: C.accent
+                },
                 # home / prompt
                 greeting: {color: C.text, fontSize: F.xl, fontWeight: "bold"},
                 greetingSub: {color: C.muted, fontSize: F.sm},
@@ -602,7 +613,6 @@ cl {
                 },
                 tileTitle: {color: C.text, fontSize: F.sm, fontWeight: "600"},
                 tileMeta: {color: C.muted, fontSize: F.xs},
-
                 # chat
                 msgUserRow: {
                     flexDirection: "row",
@@ -657,7 +667,12 @@ cl {
                     borderColor: C.border
                 },
                 revertText: {color: C.muted, fontSize: F.xs},
-                clarifyCard: {backgroundColor: C.accentSoft, borderRadius: R.md, padding: S.md, gap: S.sm},
+                clarifyCard: {
+                    backgroundColor: C.accentSoft,
+                    borderRadius: R.md,
+                    padding: S.md,
+                    gap: S.sm
+                },
                 chatComposer: {
                     flexDirection: "row",
                     alignItems: "flex-end",
@@ -683,7 +698,6 @@ cl {
                     alignItems: "center",
                     justifyContent: "center"
                 },
-
                 # preview / device
                 deviceWrap: {alignItems: "center", padding: S.lg, gap: S.md},
                 previewBar: {
@@ -733,9 +747,18 @@ cl {
                     borderRadius: R.pill,
                     backgroundColor: C.accentSoft
                 },
-                mockLineWide: {height: 8, borderRadius: R.pill, backgroundColor: C.elevated, flex: 1},
-                mockLineThin: {height: 6, borderRadius: R.pill, backgroundColor: C.elevated, width: "60%"},
-
+                mockLineWide: {
+                    height: 8,
+                    borderRadius: R.pill,
+                    backgroundColor: C.elevated,
+                    flex: 1
+                },
+                mockLineThin: {
+                    height: 6,
+                    borderRadius: R.pill,
+                    backgroundColor: C.elevated,
+                    width: "60%"
+                },
                 # monitor
                 metricRow: {flexDirection: "row", gap: S.sm},
                 metricTile: {
@@ -766,9 +789,13 @@ cl {
                     borderRadius: R.sm,
                     backgroundColor: C.elevated
                 },
-
                 # deploy steps
-                stepRow: {flexDirection: "row", alignItems: "center", gap: S.sm, paddingVertical: S.xs},
+                stepRow: {
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: S.sm,
+                    paddingVertical: S.xs
+                },
                 stepDot: {
                     width: 22,
                     height: 22,
@@ -777,7 +804,6 @@ cl {
                     justifyContent: "center"
                 },
                 stepText: {color: C.text, fontSize: F.sm, flex: 1},
-
                 # billing
                 planCard: {
                     backgroundColor: C.surface,
@@ -797,7 +823,6 @@ cl {
                     padding: S.md,
                     gap: S.xs
                 },
-
                 # modals
                 modalOverlay: {
                     position: "absolute",
@@ -827,7 +852,6 @@ cl {
                 },
                 modalTitle: {color: C.text, fontSize: F.md, fontWeight: "bold"},
                 sheetScroll: {maxHeight: 380},
-
                 # empty
                 empty: {padding: S.huge, alignItems: "center", gap: S.sm},
                 emptyTitle: {color: C.text, fontSize: F.md, fontWeight: "bold"},

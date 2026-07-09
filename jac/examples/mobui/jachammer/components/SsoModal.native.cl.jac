@@ -22,7 +22,17 @@ cl {
         }
         top = 54 if Platform.OS == "ios" else 26;
         return
-            <View style={{position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: C.bg, zIndex: 200}}>
+            <View
+                style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: C.bg,
+                    zIndex: 200
+                }}
+            >
                 <View
                     style={{
                         paddingTop: top,
@@ -36,9 +46,17 @@ cl {
                         backgroundColor: C.surface
                     }}
                 >
-                    <Text style={{color: C.text, fontSize: 16, fontWeight: "700"}}>{"Sign in with " + s["ssoProvider"]}</Text>
+                    <Text style={{color: C.text, fontSize: 16, fontWeight: "700"}}>
+                        {"Sign in with " + s["ssoProvider"]}
+                    </Text>
                     <Pressable onPress={lambda { s["closeSso"](); }} hitSlop={12}>
-                        <Icon name="close" size={22} color={C.muted} fill={False} width={2}/>
+                        <Icon
+                            name="close"
+                            size={22}
+                            color={C.muted}
+                            fill={False}
+                            width={2}
+                        />
                     </Pressable>
                 </View>
                 <WebView
@@ -47,8 +65,14 @@ cl {
                     startInLoadingState={True}
                     originWhitelist={["*"]}
                     userAgent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-                    onShouldStartLoadWithRequest={lambda(req: any) { return s["onSsoNav"](req.url); }}
-                    onNavigationStateChange={lambda(st: any) { s["onSsoNav"](st.url); }}
+                    onShouldStartLoadWithRequest={lambda (req: any) { return s[
+                        "onSsoNav"
+                    ](
+                        req.url
+                    ); }}
+                    onNavigationStateChange={lambda (st: any) { s["onSsoNav"](
+                        st.url
+                    ); }}
                 />
             </View>;
     }

@@ -18,8 +18,10 @@ cl {
 
     def:pub AppShell -> JsxElement {
         s = useStudio();
-        C = s["C"]; styles = s["styles"];
-        tab = s["tab"]; unreadCount = s["unreadCount"];
+        C = s["C"];
+        styles = s["styles"];
+        tab = s["tab"];
+        unreadCount = s["unreadCount"];
         if s["selId"] != "" {
             return <DetailScreen/>;
         }
@@ -36,8 +38,20 @@ cl {
                     <View style={styles.headerRight}>
                         <CreditsPill/>
                         <Pressable style={styles.iconBtn} onPress={s["openNotifs"]}>
-                            <Icon name="bell" size={22} color={C.muted} fill={False} width={2}/>
-                            {(<View style={styles.badge}><Text style={styles.badgeText}>{unreadCount()}</Text></View>)
+                            <Icon
+                                name="bell"
+                                size={22}
+                                color={C.muted}
+                                fill={False}
+                                width={2}
+                            />
+                            {(
+                                <View style={styles.badge}>
+                                    <Text style={styles.badgeText}>
+                                        {unreadCount()}
+                                    </Text>
+                                </View>
+                            )
                                 if (unreadCount() > 0)
                                 else <View/>}
                         </Pressable>
@@ -52,7 +66,11 @@ cl {
                                 else (
                                     <CommunityScreen/>
                                         if (tab == "community")
-                                        else (<ActivityScreen/> if (tab == "activity") else <ProfileScreen/>)
+                                        else (
+                                            <ActivityScreen/>
+                                                if (tab == "activity")
+                                                else <ProfileScreen/>
+                                        )
                                 )
                         )}
                 </View>

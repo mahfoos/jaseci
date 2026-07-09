@@ -14,23 +14,33 @@ cl {
 
     def:pub ChatComposer -> JsxElement {
         s = useStudio();
-        C = s["C"]; styles = s["styles"];
-        has draft: str = "";
-        has kb: int = 0;
+        C = s["C"];
+        styles = s["styles"];
+        has draft: str = "",
+            kb: int = 0;
 
         # Track the keyboard height and lift the composer by that much.
-        useEffect(lambda {
-            showEvt = "keyboardWillShow" if Platform.OS == "ios" else "keyboardDidShow";
-            hideEvt = "keyboardWillHide" if Platform.OS == "ios" else "keyboardDidHide";
-            sub1 = Keyboard.addListener(showEvt, lambda(e: any) { kb = e.endCoordinates.height; });
-            sub2 = Keyboard.addListener(hideEvt, lambda(e: any) { kb = 0; });
-            return lambda {
-                sub1.remove();
-                sub2.remove();
-            };
-        }, []);
+        useEffect(
+            lambda {
+                showEvt = "keyboardWillShow"
+                    if Platform.OS == "ios"
+                    else "keyboardDidShow";
+                hideEvt = "keyboardWillHide"
+                    if Platform.OS == "ios"
+                    else "keyboardDidHide";
+                sub1 = Keyboard.addListener(
+                    showEvt, lambda (e: any) { kb = e.endCoordinates.height; }
+                );
+                sub2 = Keyboard.addListener(hideEvt, lambda (e: any) { kb = 0; });
+                return lambda {
+                    sub1.remove();
+                    sub2.remove();
+                };
+            },
+            []
+        );
 
-        def send -> None {
+        def send {
             t = draft;
             console.log("[jh] ChatComposer.send draft=", t);
             draft = "";
@@ -49,7 +59,13 @@ cl {
                     onChangeText={lambda v: str { draft = v; }}
                 />
                 <Pressable style={styles.sendFab} onPress={send}>
-                    <Icon name="send" size={18} color={C.accentText} fill={False} width={2}/>
+                    <Icon
+                        name="send"
+                        size={18}
+                        color={C.accentText}
+                        fill={False}
+                        width={2}
+                    />
                 </Pressable>
             </View>;
     }

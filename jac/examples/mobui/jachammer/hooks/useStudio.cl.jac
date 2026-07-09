@@ -34,11 +34,29 @@ cl {
     import from ..lib.mappers { prettyModel, jbStatus, jbProj, jbComm, jbMsg }
     import from ..lib.authcookies { clearAuthCookies }
     import from ..services.api {
-        jbMe, jbUserInfo, jbProjectsList, jbProjectCreate, jbProjectRename, jbProjectDelete,
+        jbMe,
+        jbUserInfo,
+        jbProjectsList,
+        jbProjectCreate,
+        jbProjectRename,
+        jbProjectDelete,
         jbClaimSession,
-        jbTemplatesList, jbCommunityList, jbCommunityClone, jbCommunitySubmit,
-        jbChatStart, jbChatHistory, jbChatPoll, jbChatPersist, jbModelSwitch, jbFilesList, jbFileRead,
-        jbDeploy, jbDestroy, jbMonitor, jbPreviewStart, jbDeployStatus
+        jbTemplatesList,
+        jbCommunityList,
+        jbCommunityClone,
+        jbCommunitySubmit,
+        jbChatStart,
+        jbChatHistory,
+        jbChatPoll,
+        jbChatPersist,
+        jbModelSwitch,
+        jbFilesList,
+        jbFileRead,
+        jbDeploy,
+        jbDestroy,
+        jbMonitor,
+        jbPreviewStart,
+        jbDeployStatus
     }
 
     # ai_chat build events stream over this WS walker (jacBuilder's transport);
@@ -47,8 +65,15 @@ cl {
     # only routes paths under the service prefix — /ws/… alone connects then
     # closes with 1008 (verified against the live server). Hence /api/builder_sv.
     def wsBuildUrl(base: str) -> str {
-        if base.startswith("https://") { return "wss://" + base[8:] + "/api/builder_sv/ws/ide_preview_stream"; }
-        return "ws://" + base[7:] + "/api/builder_sv/ws/ide_preview_stream";
+        path = "/api/builder_sv/ws/ide_preview_stream";
+        if base.startswith("https://") {
+            return "wss://" + base[8:] + path;
+        }
+        if base.startswith("http://") {
+            return "ws://" + base[7:] + path;
+        }
+        # already ws(s):// or a bare host — don't blind-slice a wrong prefix.
+        return base + path;
     }
 
     # Splash entrance animation value — created once at module load.
@@ -143,7 +168,12 @@ cl {
             connId = "jh-" + str(Math.floor(Math.random() * 1000000000));
             Animated.timing(
                 intro,
-                {toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: True}
+                {
+                    toValue: 1,
+                    duration: 500,
+                    easing: Easing.out(Easing.cubic),
+                    useNativeDriver: True
+                }
             ).start();
             # If a JWT is already stored, re-enter the app; otherwise → auth.
             restoreSession();
@@ -154,13 +184,17 @@ cl {
 
         # ── loading flags — actions toggle these around their awaits so buttons
         #    can show a spinner + disable while a walker call is in flight ──────
-        def markBusy(key: str, val: bool) -> None {
+        def markBusy(key: str, val: bool) {
             console.log("[jh] markBusy", key, val);
             # Functional state update: several actions flip different busy keys in
             # the same tick (e.g. "chat" then "preview"); a plain `busy = {**busy…}`
             # reads a stale closure and the later call drops the earlier key. The
             # lambda receives the freshest state so every flag survives.
-            busy = lambda(prev: dict) { nb = {** prev}; nb[key] = val; return nb; };
+            busy = lambda (prev: dict) {
+                nb = {** prev};
+                nb[key] = val;
+                return nb;
+            };
         }
 
         def isBusy(key: str) -> bool {
@@ -168,7 +202,7 @@ cl {
         }
 
         # ── data loaders (call the service layer) ─────────────────────────────
-        async def jbLoadProjects -> None {
+        async def jbLoadProjects {
             d = await jbProjectsList();
             if ("success" in d) and d["success"] {
                 projects = [jbProj(p) for p in d["projects"]];
@@ -179,23 +213,33 @@ cl {
         # "" on restore. Returns whether the account loaded.
         async def jbLoadAccount(hint: str) -> bool {
             d = await jbMe(hint);
-            if not (("success" in d) and d["success"]) { return False; }
+            if not (("success" in d) and d["success"]) {
+                return False;
+            }
             b = d["billing"] if "billing" in d else {};
             billing = b;
             tier = b["tier"] if "tier" in b else "free";
             plan = tier[0].upper() + tier[1:] if len(tier) > 0 else "Free";
             bal = 0.0;
-            if "remaining_usd" in b { bal = bal + float(b["remaining_usd"]); }
-            if "topup_balance_usd" in b { bal = bal + float(b["topup_balance_usd"]); }
+            if "remaining_usd" in b {
+                bal = bal + float(b["remaining_usd"]);
+            }
+            if "topup_balance_usd" in b {
+                bal = bal + float(b["topup_balance_usd"]);
+            }
             credits = int(round(bal));
             allowed = b["models_allowed"] if "models_allowed" in b else [];
             dflt = b["default_model"] if "default_model" in b else "";
             models = [{"id": mid, "name": prettyModel(mid)} for mid in allowed];
-            if dflt != "" { model = dflt; }
+            if dflt != "" {
+                model = dflt;
+            }
             # Prefer the real display name; fall back to the typed username we
             # already have, then to the user_id only as a last resort.
             u = d["user"] if "user" in d else {};
-            dn = u["display_name"] if ("display_name" in u and u["display_name"]) else "";
+            dn = u["display_name"]
+                if ("display_name" in u and u["display_name"])
+                else "";
             if dn != "" {
                 me = dn;
             } elif me == "" {
@@ -209,14 +253,20 @@ cl {
         # asynchronously — await globalThis.__jacPlatformReady__ before checking.
         async def restoreSession -> None {
             ready = globalThis.__jacPlatformReady__;
-            if ready { await ready; }
+            if ready {
+                await ready;
+            }
             if not jacIsLoggedIn() {
-                if screen == "splash" { screen = "auth"; }
+                if screen == "splash" {
+                    screen = "auth";
+                }
                 return;
             }
             ok = await jbLoadAccount("");
             if not ok {
-                if screen == "splash" { screen = "auth"; }
+                if screen == "splash" {
+                    screen = "auth";
+                }
                 return;
             }
             tab = "home";
@@ -226,20 +276,25 @@ cl {
             loadTemplates();
             # Resolve the real display name (not the user_id) on reload too.
             info = await jbUserInfo();
-            hint = info["display_name"] if ("display_name" in info and info["display_name"]) else "";
-            if hint != "" { me = hint; }
+            hint = info["display_name"]
+                if ("display_name" in info and info["display_name"])
+                else "";
+            if hint != "" {
+                me = hint;
+            }
         }
 
-        async def loadTemplates -> None {
+        async def loadTemplates {
             d = await jbTemplatesList();
             if ("success" in d) and d["success"] and ("templates" in d) {
                 templates = [
                     {
                         "id": t["id"] if "id" in t else "",
-                        "name": t["name"] if "name" in t else (t["id"] if "id" in t else "template"),
+                        "name": t["name"]
+                            if "name" in t
+                            else (t["id"] if "id" in t else "template"),
                         "desc": t["description"] if "description" in t else ""
-                    }
-                    for t in d["templates"]
+                    } for t in d["templates"]
                 ];
                 if newTemplate == "" and len(templates) > 0 {
                     newTemplate = templates[0]["id"];
@@ -247,14 +302,14 @@ cl {
             }
         }
 
-        async def loadCommunity -> None {
+        async def loadCommunity {
             d = await jbCommunityList(query);
             if "items" in d {
                 communityItems = [jbComm(c) for c in d["items"]];
             }
         }
 
-        async def loadFiles(pid: str) -> None {
+        async def loadFiles(pid: str) {
             d = await jbFilesList(pid);
             if ("success" in d) and d["success"] and ("files" in d) {
                 curFiles = [f for f in d["files"]];
@@ -263,7 +318,7 @@ cl {
             }
         }
 
-        async def openFile(name: str) -> None {
+        async def openFile(name: str) {
             fileView = name;
             fileBody = "";
             d = await jbFileRead(selId, name);
@@ -272,15 +327,19 @@ cl {
             }
         }
 
-        async def loadMonitor(pid: str) -> None {
+        async def loadMonitor(pid: str) {
             monLoading = True;
             monitor = {};
             monLogs = [];
             od = await jbMonitor(pid, "overview", 200, 30);
             md = await jbMonitor(pid, "metrics", 200, 30);
             merged = {** od};
-            if ("prometheus" in md) { merged["prometheus"] = md["prometheus"]; }
-            if ("resources" in md) { merged["resources"] = md["resources"]; }
+            if ("prometheus" in md) {
+                merged["prometheus"] = md["prometheus"];
+            }
+            if ("resources" in md) {
+                merged["resources"] = md["resources"];
+            }
             monitor = merged;
             if ("deployed" in od) and od["deployed"] {
                 ld = await jbMonitor(pid, "logs", 80, 30);
@@ -304,8 +363,12 @@ cl {
         }
 
         def billingRemaining -> str {
-            base = float(billing["remaining_usd"]) if "remaining_usd" in billing else 0.0;
-            top = float(billing["topup_balance_usd"]) if "topup_balance_usd" in billing else 0.0;
+            base = float(billing["remaining_usd"])
+                if "remaining_usd" in billing
+                else 0.0;
+            top = float(billing["topup_balance_usd"])
+                if "topup_balance_usd" in billing
+                else 0.0;
             return f"${(base + top):.2f} left";
         }
 
@@ -336,47 +399,86 @@ cl {
         }
 
         def deviceWidth -> int {
-            if viewport == "desktop" { return 320; }
-            if viewport == "tablet" { return 300; }
+            if viewport == "desktop" {
+                return 320;
+            }
+            if viewport == "tablet" {
+                return 300;
+            }
             return 260;
         }
 
         def statusColor(s: str) -> str {
-            if s == "running" { return C.ok; }
-            if s == "building" { return C.warn; }
-            if s == "failed" { return C.danger; }
+            if s == "running" {
+                return C.ok;
+            }
+            if s == "building" {
+                return C.warn;
+            }
+            if s == "failed" {
+                return C.danger;
+            }
             return C.muted;
         }
 
         def statusLabel(s: str) -> str {
-            if s == "running" { return "Running"; }
-            if s == "building" { return "Building"; }
-            if s == "failed" { return "Failed"; }
+            if s == "running" {
+                return "Running";
+            }
+            if s == "building" {
+                return "Building";
+            }
+            if s == "failed" {
+                return "Failed";
+            }
             return "Stopped";
         }
 
         def kindColor(k: str) -> str {
-            if k == "deploy" { return C.forge; }
-            if k == "create" { return C.accent; }
-            if k == "stop" { return C.danger; }
+            if k == "deploy" {
+                return C.forge;
+            }
+            if k == "create" {
+                return C.accent;
+            }
+            if k == "stop" {
+                return C.danger;
+            }
             return C.muted;
         }
 
         def patch(p: any, status: str, progress: int, updated: str) -> dict {
             return {
-                "id": p["id"], "name": p["name"], "template": p["template"],
-                "branch": p["branch"], "status": status, "progress": progress,
-                "region": p["region"], "url": p["url"], "files": p["files"],
-                "services": p["services"], "logs": p["logs"], "updated": updated
+                "id": p["id"],
+                "name": p["name"],
+                "template": p["template"],
+                "branch": p["branch"],
+                "status": status,
+                "progress": progress,
+                "region": p["region"],
+                "url": p["url"],
+                "files": p["files"],
+                "services": p["services"],
+                "logs": p["logs"],
+                "updated": updated
             };
         }
 
-        def applyPatch(pid: str, status: str, progress: int, updated: str) -> None {
-            projects = [(patch(p, status, progress, updated) if p["id"] == pid else p) for p in projects];
+        def applyPatch(pid: str, status: str, progress: int, updated: str) {
+            projects = [
+                (patch(p, status, progress, updated) if p["id"] == pid else p)
+                for p in projects
+            ];
         }
 
-        def logActivity(kind: str, icon: str, text: str) -> None {
-            entry = {"id": f"a{len(activity)}-{text}", "kind": kind, "icon": icon, "text": text, "meta": "just now"};
+        def logActivity(kind: str, icon: str, text: str) {
+            entry = {
+                "id": f"a{len(activity)}-{text}",
+                "kind": kind,
+                "icon": icon,
+                "text": text,
+                "meta": "just now"
+            };
             activity = [entry] + activity;
         }
 
@@ -386,16 +488,26 @@ cl {
             while len(arr) > 0 {
                 best = arr[0];
                 for x in arr {
-                    if x["name"] < best["name"] { best = x; }
+                    if x["name"] < best["name"] {
+                        best = x;
+                    }
                 }
                 out = out + [best];
-                arr = [x for x in arr if x["id"] != best["id"]];
+                arr = [
+                    x
+                    for x in arr
+                    if x["id"] != best["id"]
+                ];
             }
             return out;
         }
 
         def sortedProjects -> list {
-            xs = [p for p in projects if projQuery == "" or projQuery in p["name"]];
+            xs = [
+                p
+                for p in projects
+                if projQuery == "" or projQuery in p["name"]
+            ];
             if sort == "name" {
                 return sortByName(xs);
             }
@@ -403,21 +515,35 @@ cl {
         }
 
         def tabTitle -> str {
-            if tab == "home" { return "Build something"; }
-            if tab == "projects" { return f"{len(projects)} projects"; }
-            if tab == "community" { return "Discover templates"; }
-            if tab == "activity" { return "Recent deploys"; }
+            if tab == "home" {
+                return "Build something";
+            }
+            if tab == "projects" {
+                return f"{len(projects)} projects";
+            }
+            if tab == "community" {
+                return "Discover templates";
+            }
+            if tab == "activity" {
+                return "Recent deploys";
+            }
             return f"@{me}";
         }
 
         # ── deploy / stop / restart ───────────────────────────────────────────
         # Update a project's live status + url in place (deploy writes both).
-        def setProjectDeploy(pid: str, status: str, url: str) -> None {
+        def setProjectDeploy(pid: str, status: str, url: str) {
             out = [];
             for p in projects {
                 if p["id"] == pid {
-                    np = {** p, "status": status, "progress": (100 if status == "running" else 50)};
-                    if url != "" { np["url"] = url; }
+                    np = {
+                        ** p,
+                        "status": status,
+                        "progress": (100 if status == "running" else 50)
+                    };
+                    if url != "" {
+                        np["url"] = url;
+                    }
                     out = out + [np];
                 } else {
                     out = out + [p];
@@ -430,7 +556,10 @@ cl {
         # "running" and returns the live URL. Poll it every 5s until it leaves
         # "deploying" (jacBuilder does the same), then show the URL.
         async def pollDeploy(pid: str, mode: str, tries: int) -> None {
-            if tries <= 0 { markBusy("deploy", False); return; }
+            if tries <= 0 {
+                markBusy("deploy", False);
+                return;
+            }
             d = await jbDeployStatus(pid, mode);
             dep = d["deployment"] if ("deployment" in d) else {};
             st = str(dep["status"]) if "status" in dep else "";
@@ -447,13 +576,17 @@ cl {
                 markBusy("deploy", False);
                 return;
             }
-            if url != "" { setProjectDeploy(pid, "building", url); }
+            if url != "" {
+                setProjectDeploy(pid, "building", url);
+            }
             prodStep = 3;
             setTimeout(lambda { pollDeploy(pid, mode, tries - 1); }, 5000);
         }
 
         async def deploy(pid: str) -> None {
-            if isBusy("deploy") { return; }
+            if isBusy("deploy") {
+                return;
+            }
             markBusy("deploy", True);
             applyPatch(pid, "building", 30, "deploying…");
             prodStep = 1;
@@ -461,25 +594,37 @@ cl {
             d = await jbDeploy(pid, m);
             dep = d["deployment"] if ("deployment" in d) else {};
             url0 = dep["url"] if "url" in dep else "";
-            if url0 != "" { setProjectDeploy(pid, "building", url0); }
+            if url0 != "" {
+                setProjectDeploy(pid, "building", url0);
+            }
             prodStep = 2;
-            label = "Production deploy started" if m == "permanent" else "Sandbox deploy started";
+            label = "Production deploy started"
+                if m == "permanent"
+                else "Sandbox deploy started";
             logActivity("deploy", "rocket", label);
             pollDeploy(pid, m, 24);
         }
 
         async def stopProj(pid: str) -> None {
-            if isBusy("deploy") { return; }
+            if isBusy("deploy") {
+                return;
+            }
             markBusy("deploy", True);
             previewOn = False;
             prodStep = 0;
             applyPatch(pid, "stopped", 0, "stopping…");
             jbDestroy(pid, deployMode);
             logActivity("stop", "stop", "Deployment stopped");
-            setTimeout(lambda { jbLoadProjects(); markBusy("deploy", False); }, 2500);
+            setTimeout(
+                lambda {
+                    jbLoadProjects();
+                    markBusy("deploy", False);
+                },
+                2500
+            );
         }
 
-        async def restartProj(pid: str) -> None {
+        async def restartProj(pid: str) {
             deploy(pid);
         }
 
@@ -488,7 +633,7 @@ cl {
         # Until it exists, ai_chat("start") reports "Preview not set up" and file
         # listing is empty. We start it lazily and remember it per project.
         # Reload the preview WebView (remounts via the nonce in its key).
-        def bumpPreview -> None {
+        def bumpPreview {
             previewNonce = previewNonce + 1;
         }
 
@@ -496,7 +641,9 @@ cl {
         # error.
         async def ensurePreview(pid: str) -> dict {
             console.log("[jh] ensurePreview pid=", pid, "previewReady=", previewReady);
-            if previewReady { return {"success": True}; }
+            if previewReady {
+                return {"success": True};
+            }
             markBusy("preview", True);
             # Claim the session first (jacBuilder does this on open) so the repo
             # is bound to this client's sandbox before we start the preview.
@@ -507,7 +654,9 @@ cl {
             markBusy("preview", False);
             if ("success" in d) and d["success"] {
                 previewReady = True;
-                if ("url" in d) and d["url"] { previewUrl = str(d["url"]); }
+                if ("url" in d) and d["url"] {
+                    previewUrl = str(d["url"]);
+                }
                 loadFiles(pid);
             }
             return d;
@@ -516,28 +665,45 @@ cl {
         # ── chat ──────────────────────────────────────────────────────────────
         # Just replace the thread with the persisted history. Turn completion is
         # tracked separately via ai_chat(poll) — see pollBuild.
-        async def loadChat(pid: str) -> None {
+        async def loadChat(pid: str) {
             d = await jbChatHistory(pid);
             n = len(d["messages"]) if ("messages" in d) else 0;
             console.log("[jh] loadChat msgs=", n, "raw=", d);
-            if ("success" in d) and d["success"] and ("messages" in d) and (len(d["messages"]) > 0) {
+            if ("success" in d)
+            and d["success"]
+            and ("messages" in d)
+            and (len(d["messages"]) > 0) {
                 messages = [jbMsg(m, i) for (i, m) in enumerate(d["messages"])];
             }
         }
 
-        async def reloadChat -> None {
+        async def reloadChat {
             if selId != "" {
                 loadChat(selId);
             }
         }
 
-        def chatError(text: str) -> None {
+        def chatError(text: str) {
             markBusy("chat", False);
-            messages = messages + [{"id": f"err-{len(messages)}", "role": "ai", "text": text, "steps": [], "done": True}];
+            messages = messages + [
+                {
+                    "id": f"err-{len(messages)}",
+                    "role": "ai",
+                    "text": text,
+                    "steps": [],
+                    "done": True
+                }
+            ];
         }
 
-        def buildDone(pid: str) -> None {
+        def buildDone(pid: str) {
             markBusy("chat", False);
+            # Only touch the detail view if the built project is still on screen —
+            # the user may have navigated to a different project mid-build.
+            if selId != pid {
+                autoPreview = False;
+                return;
+            }
             curFiles = [];
             loadFiles(pid);
             if autoPreview {
@@ -553,8 +719,12 @@ cl {
         # Finalize the turn once the agent_done event arrives: persist the reply
         # (writes the assistant message + clears the server's processing flag),
         # then refresh the thread, files and preview.
-        async def finishBuild(pid: str, resp: str, promoted: list, isErr: bool, ckpt: str) -> None {
-            console.log("[jh] finishBuild persist… isErr=", isErr, "files=", len(promoted));
+        async def finishBuild(
+            pid: str, resp: str, promoted: list, isErr: bool, ckpt: str
+        ) {
+            console.log(
+                "[jh] finishBuild persist… isErr=", isErr, "files=", len(promoted)
+            );
             await jbChatPersist(pid, resp, promoted, isErr, ckpt);
             await loadChat(pid);
             buildDone(pid);
@@ -565,7 +735,7 @@ cl {
         # streamed events until `agent_done`/`agent_error`, then persist. The HTTP
         # `poll` action can't do this — the walker has no connection_id param, so
         # drain_events() always returns [].
-        def streamBuild(pid: str, ckpt: str) -> None {
+        def streamBuild(pid: str, ckpt: str) {
             token = globalThis.__jacGetLocalStorage__("jac_token");
             cid = "run-" + str(Math.floor(Math.random() * 1000000000));
             url = wsBuildUrl(JB_API);
@@ -577,38 +747,79 @@ cl {
             send = lambda {
                 rid = "r" + str(Math.floor(Math.random() * 1000000000));
                 try {
-                    ws.send(JSON.stringify({"user_id": "", "project_id": pid, "action": "ai_events", "log_offset": 0, "token": token, "connection_id": cid, "request_id": rid}));
-                } except Exception as e { console.log("[jh] ws send failed", e); }
+                    ws.send(
+                        JSON.stringify(
+                            {
+                                "user_id": "",
+                                "project_id": pid,
+                                "action": "ai_events",
+                                "log_offset": 0,
+                                "token": token,
+                                "connection_id": cid,
+                                "request_id": rid
+                            }
+                        )
+                    );
+                } except Exception as e {
+                    console.log("[jh] ws send failed", e);
+                }
             };
-            ws.onopen = lambda(e: any) { console.log("[jh] ws open"); send(); };
-            ws.onmessage = lambda(ev: any) {
-                if not st["logged"] { st["logged"] = True; console.log("[jh] ws FIRST FULL msg:", str(ev.data)); }
+            ws.onopen = lambda (e: any) {
+                console.log("[jh] ws open");
+                send();
+            };
+            ws.onmessage = lambda (ev: any) {
+                if not st["logged"] {
+                    st["logged"] = True;
+                    console.log("[jh] ws FIRST FULL msg:", str(ev.data));
+                }
                 data = JSON.parse(ev.data);
                 # Envelope: { ok, data: { result: { events, processing, … } } }.
                 rep = data;
-                if data and data.data and data.data.result { rep = data.data.result; }
-                elif data and data.data and data.data.reports and (data.data.reports.length > 0) {
+                if data and data.data and data.data.result {
+                    rep = data.data.result;
+                } elif data
+                and data.data
+                and data.data.reports
+                and (data.data.reports.length > 0) {
                     rep = data.data.reports[data.data.reports.length - 1];
                 }
                 evs = rep.events if (rep and rep.events) else [];
                 proc = rep.processing if rep else False;
-                done = False; isErr = False; resp = "";
+                done = False;
+                isErr = False;
+                resp = "";
                 for evt in evs {
                     t = evt.type;
-                    if t == "file_promoted" and evt.path { promoted.push(evt.path); }
-                    elif t == "agent_done" { done = True; resp = (evt.response if evt.response else ""); }
-                    elif t == "agent_error" { done = True; isErr = True; resp = (evt.error if evt.error else "The build failed."); }
+                    if t == "file_promoted" and evt.path {
+                        promoted.push(evt.path);
+                    } elif t == "agent_done" {
+                        done = True;
+                        resp = evt.response or "";
+                    } elif t == "agent_error" {
+                        done = True;
+                        isErr = True;
+                        resp = evt.error or "The build failed.";
+                    }
                 }
-                if (len(evs) > 0) or done { console.log("[jh] ws events=", len(evs), "proc=", proc, "done=", done); }
+                if (len(evs) > 0) or done {
+                    console.log(
+                        "[jh] ws events=", len(evs), "proc=", proc, "done=", done
+                    );
+                }
                 if done {
                     st["closed"] = True;
-                    try { ws.close(); } except Exception as e {}
+                    try {
+                        ws.close();
+                    } except Exception as e { }
                     finishBuild(pid, resp, promoted, isErr, ckpt);
                 } else {
                     st["ticks"] = st["ticks"] + 1;
                     if st["ticks"] > 600 {
                         st["closed"] = True;
-                        try { ws.close(); } except Exception as e {}
+                        try {
+                            ws.close();
+                        } except Exception as e { }
                         loadChat(pid);
                         buildDone(pid);
                     } else {
@@ -616,9 +827,18 @@ cl {
                     }
                 }
             };
-            ws.onerror = lambda(e: any) { console.log("[jh] ws error", (e.message if e else "")); };
-            ws.onclose = lambda(e: any) {
-                console.log("[jh] ws closed clean=", st["closed"], "code=", (e.code if e else ""), "reason=", (e.reason if e else ""));
+            ws.onerror = lambda (e: any) { console.log(
+                "[jh] ws error", (e.message if e else "")
+            ); };
+            ws.onclose = lambda (e: any) {
+                console.log(
+                    "[jh] ws closed clean=",
+                    st["closed"],
+                    "code=",
+                    (e.code if e else ""),
+                    "reason=",
+                    (e.reason if e else "")
+                );
                 # Unexpected drop mid-build → fall back so the spinner clears.
                 if (not st["closed"]) and isBusy("chat") {
                     loadChat(pid);
@@ -639,7 +859,9 @@ cl {
                     setTimeout(lambda { startBuild(pid, txt, attempt + 1); }, 3500);
                     return;
                 }
-                perr = pv["error"] if ("error" in pv and pv["error"]) else "Couldn't start the preview workspace.";
+                perr = pv["error"]
+                    if ("error" in pv and pv["error"])
+                    else "Couldn't start the preview workspace.";
                 chatError(f"⚠️ Preview: {perr}");
                 return;
             }
@@ -656,12 +878,16 @@ cl {
             d = await jbChatStart(pid, txt);
             console.log("[jh] jbChatStart attempt", attempt, "→", d);
             if ("success" in d) and d["success"] {
-                ckpt = d["checkpoint_ref"] if ("checkpoint_ref" in d and d["checkpoint_ref"]) else "";
+                ckpt = d["checkpoint_ref"]
+                    if ("checkpoint_ref" in d and d["checkpoint_ref"])
+                    else "";
                 streamBuild(pid, ckpt);
                 return;
             }
             errStr = str(d["error"]) if ("error" in d and d["error"]) else "";
-            ckpt = d["checkpoint_ref"] if ("checkpoint_ref" in d and d["checkpoint_ref"]) else "";
+            ckpt = d["checkpoint_ref"]
+                if ("checkpoint_ref" in d and d["checkpoint_ref"])
+                else "";
             inflight = ("already in flight" in errStr) or ("in flight" in errStr);
             is504 = ("504" in errStr) or ("Gateway Time-out" in errStr);
             # Turn is confirmed running (in-flight error carries the checkpoint) → stream.
@@ -675,27 +901,37 @@ cl {
                 setTimeout(lambda { tryChatStart(pid, txt, attempt + 1); }, 2500);
                 return;
             }
-            chatError(f"⚠️ {errStr if errStr != '' else 'The build turn could not start.'}");
+            chatError(
+                f"⚠️ {errStr if errStr != '' else 'The build turn could not start.'}"
+            );
         }
 
         # Takes the text from the (locally-stateful) chat composer, so typing
         # never re-renders the whole detail screen.
         async def sendChat(raw: str) -> None {
             txt = raw.strip();
-            console.log("[jh] sendChat raw=", raw, "selId=", selId, "busyChat=", isBusy("chat"));
-            if txt == "" or isBusy("chat") { return; }
+            console.log(
+                "[jh] sendChat raw=", raw, "selId=", selId, "busyChat=", isBusy("chat")
+            );
+            if txt == "" or isBusy("chat") {
+                return;
+            }
             Keyboard.dismiss();
             markBusy("chat", True);
             # Optimistic user bubble only; the "working…" indicator comes from the
             # chat busy flag and stays put until the reply lands.
-            messages = messages + [{"id": "tmp-u", "role": "user", "text": txt, "steps": [], "done": True}];
+            messages = messages + [
+                {"id": "tmp-u", "role": "user", "text": txt, "steps": [], "done": True}
+            ];
             startBuild(selId, txt, 1);
         }
 
         async def sendPrompt -> None {
             txt = prompt.strip();
             console.log("[jh] sendPrompt txt=", txt);
-            if txt == "" or isBusy("prompt") { return; }
+            if txt == "" or isBusy("prompt") {
+                return;
+            }
             markBusy("prompt", True);
             d = await jbProjectCreate("app", "", "");
             console.log("[jh] jbProjectCreate →", d);
@@ -703,7 +939,13 @@ cl {
             if ("success" in d) and d["success"] and ("project" in d) {
                 pid = d["project"]["id"];
                 prompt = "";
-                logActivity("create", "plus", f"Created “{d['project']['name'] if 'name' in d['project'] else 'app'}”");
+                logActivity(
+                    "create",
+                    "plus",
+                    f"Created “{d['project']['name']
+                        if 'name' in d['project']
+                        else 'app'}”"
+                );
                 jbLoadProjects();
                 # Open the project and run the prompt as a real build turn; when
                 # the build finishes we auto-switch to the Preview tab. Use `pid`
@@ -716,21 +958,33 @@ cl {
                 previewUrl = "";
                 autoPreview = True;
                 markBusy("chat", True);
-                messages = [{"id": "tmp-u", "role": "user", "text": txt, "steps": [], "done": True}];
+                messages = [
+                    {
+                        "id": "tmp-u",
+                        "role": "user",
+                        "text": txt,
+                        "steps": [],
+                        "done": True
+                    }
+                ];
                 startBuild(pid, txt, 1);
             } else {
                 # Surface create failures (e.g. "Project limit reached (3)").
-                err = d["error"] if ("error" in d and d["error"]) else "Couldn't create the project.";
+                err = d["error"]
+                    if ("error" in d and d["error"])
+                    else "Couldn't create the project.";
                 prompt = txt;
                 Alert.alert("Can't create project", str(err));
             }
         }
 
         # ── model switch ──────────────────────────────────────────────────────
-        async def chooseModel(mid: str) -> None {
+        async def chooseModel(mid: str) {
             if selId != "" {
                 d = await jbModelSwitch(selId, mid);
-                if ("success" in d) and d["success"] { model = mid; }
+                if ("success" in d) and d["success"] {
+                    model = mid;
+                }
             } else {
                 model = mid;
             }
@@ -738,9 +992,13 @@ cl {
 
         # ── project CRUD ──────────────────────────────────────────────────────
         async def createProject -> None {
-            if isBusy("create") { return; }
+            if isBusy("create") {
+                return;
+            }
             nm = newName.strip();
-            if nm == "" { nm = "app"; }
+            if nm == "" {
+                nm = "app";
+            }
             Keyboard.dismiss();
             markBusy("create", True);
             d = await jbProjectCreate(nm, newTemplate, "");
@@ -761,7 +1019,9 @@ cl {
         }
 
         async def cloneTemplate(c: any) -> None {
-            if isBusy("clone") { return; }
+            if isBusy("clone") {
+                return;
+            }
             markBusy("clone", True);
             tab = "projects";
             await jbCommunityClone(c["id"], c["name"]);
@@ -773,7 +1033,9 @@ cl {
         async def doRename -> None {
             pid = renameId;
             nm = renameVal.strip();
-            if nm == "" or isBusy("rename") { return; }
+            if nm == "" or isBusy("rename") {
+                return;
+            }
             markBusy("rename", True);
             await jbProjectRename(pid, nm);
             markBusy("rename", False);
@@ -784,29 +1046,39 @@ cl {
         }
 
         async def doDelete -> None {
-            if isBusy("delete") { return; }
+            if isBusy("delete") {
+                return;
+            }
             pid = deleteId;
             nm = "project";
             for p in projects {
-                if p["id"] == pid { nm = p["name"]; }
+                if p["id"] == pid {
+                    nm = p["name"];
+                }
             }
             markBusy("delete", True);
             await jbProjectDelete(pid);
             markBusy("delete", False);
             deleteId = "";
-            if selId == pid { selId = ""; }
+            if selId == pid {
+                selId = "";
+            }
             logActivity("stop", "close", f"Deleted “{nm}”");
             jbLoadProjects();
         }
 
         async def doPublish -> None {
-            if isBusy("publish") { return; }
+            if isBusy("publish") {
+                return;
+            }
             pid = shareId;
             desc = shareDesc.strip();
             tags = shareTags;
             name = "project";
             for p in projects {
-                if p["id"] == pid { name = p["name"]; }
+                if p["id"] == pid {
+                    name = p["name"];
+                }
             }
             markBusy("publish", True);
             await jbCommunitySubmit(name, desc, tags, pid);
@@ -820,10 +1092,21 @@ cl {
         async def submitAuth -> None {
             authError = "";
             u = authUser.strip();
-            if len(u) < 3 { authError = "Username must be at least 3 characters."; return; }
-            if len(authPass) < 6 { authError = "Password must be at least 6 characters."; return; }
-            if authMode == "signup" and authPass != authPass2 { authError = "Passwords do not match."; return; }
-            if isBusy("auth") { return; }
+            if len(u) < 3 {
+                authError = "Username must be at least 3 characters.";
+                return;
+            }
+            if len(authPass) < 6 {
+                authError = "Password must be at least 6 characters.";
+                return;
+            }
+            if authMode == "signup" and authPass != authPass2 {
+                authError = "Passwords do not match.";
+                return;
+            }
+            if isBusy("auth") {
+                return;
+            }
             Keyboard.dismiss();
             markBusy("auth", True);
             if authMode == "signup" {
@@ -859,14 +1142,14 @@ cl {
         # deep link is rejected — only loopback callbacks are honoured — so we
         # let it land on the web callback and intercept the redirect in the
         # WebView instead). See SsoModal.
-        def oauth(provider: str) -> None {
+        def oauth(provider: str) {
             authError = "";
             cb = encodeURIComponent(f"{JB_API}/auth/callback");
             ssoProvider = provider[0].upper() + provider[1:];
             ssoUrl = f"{JB_API}/sso/{provider}/login?client_callback={cb}";
         }
 
-        def closeSso -> None {
+        def closeSso {
             ssoUrl = "";
             ssoProvider = "";
         }
@@ -882,7 +1165,11 @@ cl {
                     rest = url[idx + len(marker):];
                     amp = rest.find("&");
                     val = rest if amp < 0 else rest[0:amp];
-                    try { return decodeURIComponent(val); } except Exception as e { return val; }
+                    try {
+                        return decodeURIComponent(val);
+                    } except Exception as e {
+                        return val;
+                    }
                 }
             }
             return "";
@@ -896,7 +1183,9 @@ cl {
                 # jac cloud's token is a JWT: header.payload.signature (2 dots).
                 # This rules out any other single-segment token param.
                 if len(tok.split(".")) >= 3 {
-                    console.log("[jh] SSO token caught len=", len(tok), "url=", url[0:70]);
+                    console.log(
+                        "[jh] SSO token caught len=", len(tok), "url=", url[0:70]
+                    );
                     finishSso(tok);
                     return False;
                 }
@@ -910,7 +1199,7 @@ cl {
             return True;
         }
 
-        async def finishSso(token: str) -> None {
+        async def finishSso(token: str) {
             globalThis.__jacSetLocalStorage__("jac_token", token);
             ssoUrl = "";
             ssoProvider = "";
@@ -926,12 +1215,16 @@ cl {
             # jac cloud's JWT/`me` only carry the user_id for SSO — fetch the real
             # display name from /user/me afterwards (non-blocking for login).
             info = await jbUserInfo();
-            name = info["display_name"] if ("display_name" in info and info["display_name"]) else "";
+            name = info["display_name"]
+                if ("display_name" in info and info["display_name"])
+                else "";
             console.log("[jh] SSO display name=", name);
-            if name != "" { me = name; }
+            if name != "" {
+                me = name;
+            }
         }
 
-        def logout -> None {
+        def logout {
             jacLogout();
             # Clear the SSO WebView's cookies so the next social sign-in shows
             # the account picker (needs the native cookie module — active in a
@@ -947,7 +1240,7 @@ cl {
             authMode = "login";
         }
 
-        def cycleTheme -> None {
+        def cycleTheme {
             if appTheme == "dark" {
                 appTheme = "light";
             } else {
@@ -959,15 +1252,17 @@ cl {
             }
         }
 
-        def startRename(pid: str) -> None {
+        def startRename(pid: str) {
             renameId = pid;
             for p in projects {
-                if p["id"] == pid { renameVal = p["name"]; }
+                if p["id"] == pid {
+                    renameVal = p["name"];
+                }
             }
             projMenu = "";
         }
 
-        def openProject(pid: str) -> None {
+        def openProject(pid: str) {
             selId = pid;
             detTab = "chat";
             curFiles = [];
@@ -981,16 +1276,16 @@ cl {
             ensurePreview(pid);
         }
 
-        def closeProject -> None {
+        def closeProject {
             selId = "";
         }
 
-        def openNotifs -> None {
+        def openNotifs {
             notifOpen = True;
             seenCount = len(activity);
         }
 
-        def openNew(mode: str) -> None {
+        def openNew(mode: str) {
             newMode = mode;
             newName = "";
             newRepo = "";
@@ -1003,65 +1298,165 @@ cl {
         # ── the context value: everything screens/components consume ───────────
         value = {
             # state
-            "screen": screen, "appTheme": appTheme, "authMode": authMode,
-            "authUser": authUser, "authPass": authPass, "authPass2": authPass2,
-            "authError": authError, "me": me, "credits": credits, "plan": plan,
-            "billing": billing, "model": model, "tab": tab, "projects": projects,
-            "activity": activity, "communityItems": communityItems,
-            "curFiles": curFiles, "templates": templates, "models": models,
-            "monitor": monitor, "monLogs": monLogs, "monLoading": monLoading,
-            "messages": messages, "selId": selId, "detTab": detTab,
-            "projQuery": projQuery, "query": query, "sort": sort, "prompt": prompt,
-            "showNew": showNew, "newMode": newMode,
-            "newName": newName, "newTemplate": newTemplate, "newRepo": newRepo,
-            "fileView": fileView, "fileBody": fileBody, "notifOpen": notifOpen,
-            "modelSheet": modelSheet, "projMenu": projMenu, "renameId": renameId,
-            "renameVal": renameVal, "shareId": shareId, "shareDesc": shareDesc,
-            "shareTags": shareTags, "deleteId": deleteId, "billingOpen": billingOpen,
-            "seenCount": seenCount, "notifEnabled": notifEnabled, "previewOn": previewOn,
-            "previewReady": previewReady, "previewUrl": previewUrl, "previewNonce": previewNonce,
-            "ssoUrl": ssoUrl, "ssoProvider": ssoProvider,
-            "viewport": viewport, "deployMode": deployMode, "prodStep": prodStep, "prodDomain": prodDomain,
-            "tlsOn": tlsOn, "intro": intro, "busy": busy,
+            "screen": screen,
+            "appTheme": appTheme,
+            "authMode": authMode,
+            "authUser": authUser,
+            "authPass": authPass,
+            "authPass2": authPass2,
+            "authError": authError,
+            "me": me,
+            "credits": credits,
+            "plan": plan,
+            "billing": billing,
+            "model": model,
+            "tab": tab,
+            "projects": projects,
+            "activity": activity,
+            "communityItems": communityItems,
+            "curFiles": curFiles,
+            "templates": templates,
+            "models": models,
+            "monitor": monitor,
+            "monLogs": monLogs,
+            "monLoading": monLoading,
+            "messages": messages,
+            "selId": selId,
+            "detTab": detTab,
+            "projQuery": projQuery,
+            "query": query,
+            "sort": sort,
+            "prompt": prompt,
+            "showNew": showNew,
+            "newMode": newMode,
+            "newName": newName,
+            "newTemplate": newTemplate,
+            "newRepo": newRepo,
+            "fileView": fileView,
+            "fileBody": fileBody,
+            "notifOpen": notifOpen,
+            "modelSheet": modelSheet,
+            "projMenu": projMenu,
+            "renameId": renameId,
+            "renameVal": renameVal,
+            "shareId": shareId,
+            "shareDesc": shareDesc,
+            "shareTags": shareTags,
+            "deleteId": deleteId,
+            "billingOpen": billingOpen,
+            "seenCount": seenCount,
+            "notifEnabled": notifEnabled,
+            "previewOn": previewOn,
+            "previewReady": previewReady,
+            "previewUrl": previewUrl,
+            "previewNonce": previewNonce,
+            "ssoUrl": ssoUrl,
+            "ssoProvider": ssoProvider,
+            "viewport": viewport,
+            "deployMode": deployMode,
+            "prodStep": prodStep,
+            "prodDomain": prodDomain,
+            "tlsOn": tlsOn,
+            "intro": intro,
+            "busy": busy,
             # derived theme
-            "light": light, "C": C, "styles": styles,
+            "light": light,
+            "C": C,
+            "styles": styles,
             # setters (auto-generated from `has`)
-            "setScreen": setScreen, "setAppTheme": setAppTheme, "setAuthMode": setAuthMode,
-            "setAuthUser": setAuthUser, "setAuthPass": setAuthPass, "setAuthPass2": setAuthPass2,
-            "setAuthError": setAuthError, "setModel": setModel, "setTab": setTab,
-            "setSelId": setSelId, "setDetTab": setDetTab, "setProjQuery": setProjQuery,
-            "setQuery": setQuery, "setSort": setSort, "setPrompt": setPrompt,
-            "setShowNew": setShowNew, "setNewMode": setNewMode,
-            "setNewName": setNewName, "setNewTemplate": setNewTemplate, "setNewRepo": setNewRepo,
-            "setFileView": setFileView, "setFileBody": setFileBody, "setNotifOpen": setNotifOpen,
-            "setModelSheet": setModelSheet, "setProjMenu": setProjMenu, "setRenameId": setRenameId,
-            "setRenameVal": setRenameVal, "setShareId": setShareId, "setShareDesc": setShareDesc,
-            "setShareTags": setShareTags, "setDeleteId": setDeleteId, "setBillingOpen": setBillingOpen,
-            "setNotifEnabled": setNotifEnabled, "setPreviewOn": setPreviewOn, "setViewport": setViewport,
-            "setProdStep": setProdStep, "setProdDomain": setProdDomain, "setTlsOn": setTlsOn,
+            "setScreen": setScreen,
+            "setAppTheme": setAppTheme,
+            "setAuthMode": setAuthMode,
+            "setAuthUser": setAuthUser,
+            "setAuthPass": setAuthPass,
+            "setAuthPass2": setAuthPass2,
+            "setAuthError": setAuthError,
+            "setModel": setModel,
+            "setTab": setTab,
+            "setSelId": setSelId,
+            "setDetTab": setDetTab,
+            "setProjQuery": setProjQuery,
+            "setQuery": setQuery,
+            "setSort": setSort,
+            "setPrompt": setPrompt,
+            "setShowNew": setShowNew,
+            "setNewMode": setNewMode,
+            "setNewName": setNewName,
+            "setNewTemplate": setNewTemplate,
+            "setNewRepo": setNewRepo,
+            "setFileView": setFileView,
+            "setFileBody": setFileBody,
+            "setNotifOpen": setNotifOpen,
+            "setModelSheet": setModelSheet,
+            "setProjMenu": setProjMenu,
+            "setRenameId": setRenameId,
+            "setRenameVal": setRenameVal,
+            "setShareId": setShareId,
+            "setShareDesc": setShareDesc,
+            "setShareTags": setShareTags,
+            "setDeleteId": setDeleteId,
+            "setBillingOpen": setBillingOpen,
+            "setNotifEnabled": setNotifEnabled,
+            "setPreviewOn": setPreviewOn,
+            "setViewport": setViewport,
+            "setProdStep": setProdStep,
+            "setProdDomain": setProdDomain,
+            "setTlsOn": setTlsOn,
             "setDeployMode": setDeployMode,
             # helpers
-            "jbStatus": jbStatus, "statusColor": statusColor, "statusLabel": statusLabel,
-            "kindColor": kindColor, "usd": usd, "billingRemaining": billingRemaining,
-            "billingSub": billingSub, "kbBehavior": kbBehavior, "unreadCount": unreadCount,
-            "selected": selected, "deviceWidth": deviceWidth, "sortedProjects": sortedProjects,
-            "tabTitle": tabTitle, "isBusy": isBusy,
+            "jbStatus": jbStatus,
+            "statusColor": statusColor,
+            "statusLabel": statusLabel,
+            "kindColor": kindColor,
+            "usd": usd,
+            "billingRemaining": billingRemaining,
+            "billingSub": billingSub,
+            "kbBehavior": kbBehavior,
+            "unreadCount": unreadCount,
+            "selected": selected,
+            "deviceWidth": deviceWidth,
+            "sortedProjects": sortedProjects,
+            "tabTitle": tabTitle,
+            "isBusy": isBusy,
             # actions
-            "jbLoadProjects": jbLoadProjects, "jbLoadAccount": jbLoadAccount,
-            "loadTemplates": loadTemplates, "loadCommunity": loadCommunity,
-            "loadFiles": loadFiles, "openFile": openFile, "loadMonitor": loadMonitor,
-            "ensurePreview": ensurePreview, "bumpPreview": bumpPreview,
-            "deploy": deploy, "stopProj": stopProj, "restartProj": restartProj,
-            "loadChat": loadChat, "reloadChat": reloadChat, "sendChat": sendChat,
-            "sendPrompt": sendPrompt, "chooseModel": chooseModel, "createProject": createProject,
-            "cloneTemplate": cloneTemplate, "doRename": doRename, "doDelete": doDelete,
-            "doPublish": doPublish, "submitAuth": submitAuth, "oauth": oauth, "logout": logout,
-            "closeSso": closeSso, "onSsoNav": onSsoNav,
-            "cycleTheme": cycleTheme, "startRename": startRename, "openProject": openProject,
-            "closeProject": closeProject, "openNotifs": openNotifs, "openNew": openNew,
-            "logActivity": logActivity, "applyPatch": applyPatch
+            "jbLoadProjects": jbLoadProjects,
+            "jbLoadAccount": jbLoadAccount,
+            "loadTemplates": loadTemplates,
+            "loadCommunity": loadCommunity,
+            "loadFiles": loadFiles,
+            "openFile": openFile,
+            "loadMonitor": loadMonitor,
+            "ensurePreview": ensurePreview,
+            "bumpPreview": bumpPreview,
+            "deploy": deploy,
+            "stopProj": stopProj,
+            "restartProj": restartProj,
+            "loadChat": loadChat,
+            "reloadChat": reloadChat,
+            "sendChat": sendChat,
+            "sendPrompt": sendPrompt,
+            "chooseModel": chooseModel,
+            "createProject": createProject,
+            "cloneTemplate": cloneTemplate,
+            "doRename": doRename,
+            "doDelete": doDelete,
+            "doPublish": doPublish,
+            "submitAuth": submitAuth,
+            "oauth": oauth,
+            "logout": logout,
+            "closeSso": closeSso,
+            "onSsoNav": onSsoNav,
+            "cycleTheme": cycleTheme,
+            "startRename": startRename,
+            "openProject": openProject,
+            "closeProject": closeProject,
+            "openNotifs": openNotifs,
+            "openNew": openNew,
+            "logActivity": logActivity,
+            "applyPatch": applyPatch
         };
 
-        return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
+        return
+            <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
     }
 }

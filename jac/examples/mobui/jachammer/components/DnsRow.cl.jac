@@ -7,7 +7,8 @@ cl {
 
     def:pub DnsRow(kind: str, host: str, val: str) -> JsxElement {
         s = useStudio();
-        styles = s["styles"]; C = s["C"];
+        styles = s["styles"];
+        C = s["C"];
         return
             <View style={styles.row}>
                 <View style={styles.rowBody}>
@@ -15,7 +16,13 @@ cl {
                     <Text style={styles.monoSmall}>{val}</Text>
                 </View>
                 <View style={styles.copyBtn}>
-                    <Icon name="clone" size={12} color={C.muted} fill={False} width={2}/>
+                    <Icon
+                        name="clone"
+                        size={12}
+                        color={C.muted}
+                        fill={False}
+                        width={2}
+                    />
                     <Text style={styles.chipText}>Copy</Text>
                 </View>
             </View>;

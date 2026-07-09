@@ -12,7 +12,13 @@ cl {
         return
             <View style={styles.row} key={a["id"]}>
                 <View style={styles.actIcon}>
-                    <Icon name={a["icon"]} size={18} color={col} fill={False} width={2}/>
+                    <Icon
+                        name={a["icon"]}
+                        size={18}
+                        color={col}
+                        fill={False}
+                        width={2}
+                    />
                 </View>
                 <View style={styles.rowBody}>
                     <Text style={styles.actText}>{a["text"]}</Text>

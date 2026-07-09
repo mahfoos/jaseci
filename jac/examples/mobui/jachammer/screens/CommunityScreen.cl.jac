@@ -9,13 +9,24 @@ cl {
 
     def:pub CommunityScreen -> JsxElement {
         s = useStudio();
-        C = s["C"]; styles = s["styles"];
+        C = s["C"];
+        styles = s["styles"];
         query = s["query"];
-        items = [c for c in s["communityItems"] if query == "" or (query in c["name"] or query in c["author"])];
+        items = [
+            c
+            for c in s["communityItems"]
+            if query == "" or (query in c["name"] or query in c["author"])
+        ];
         return
             <KeyboardAvoidingView style={styles.body} behavior={s["kbBehavior"]()}>
                 <View style={[styles.fieldRow, {margin: S.lg}]}>
-                    <Icon name="search" size={18} color={C.muted} fill={False} width={2}/>
+                    <Icon
+                        name="search"
+                        size={18}
+                        color={C.muted}
+                        fill={False}
+                        width={2}
+                    />
                     <TextInput
                         style={styles.fieldInput}
                         value={query}
@@ -25,7 +36,11 @@ cl {
                         onChangeText={lambda v: str { s["setQuery"](v); }}
                     />
                 </View>
-                <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollBody} keyboardShouldPersistTaps="handled">
+                <ScrollView
+                    style={styles.scroll}
+                    contentContainerStyle={styles.scrollBody}
+                    keyboardShouldPersistTaps="handled"
+                >
                     {[<CommunityCard key={c["id"]} c={c}/> for c in items]}
                 </ScrollView>
             </KeyboardAvoidingView>;

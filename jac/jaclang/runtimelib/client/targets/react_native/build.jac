@@ -78,8 +78,6 @@ def _resolve_relative_img_src(js_file: Path, src: str) -> Path | None {
 
 def build_native_index_entry_body -> str {
     return (
-        # Runs first (imports are hoisted in order) so the build-time API base URL
-        # is on globalThis before the app mounts — see write_api_base_shim.
         "import './__jacApiBase';\n"
         "import 'react-native-gesture-handler';\n"
         "import { registerRootComponent } from 'expo';\n"
@@ -89,10 +87,6 @@ def build_native_index_entry_body -> str {
 }
 
 
-"""Write the `__jacApiBase.js` shim the native entry imports first. In dev,
-`jac start` bakes the exact API URL here as a build-time global so the client
-never has to read it from Expo config (which is unreliable in Expo Go); empty
-otherwise, so the runtime falls back to expo.extra.apiBaseUrl / env."""
 def write_api_base_shim(rn_dir: Path, api_url: str = "") {
     if api_url {
         body = f"globalThis.__JAC_API_BASE_URL__ = {json.dumps(api_url)};\n";
@@ -113,11 +107,8 @@ def write_native_entry(rn_dir: Path) {
     (rn_dir / "index.ts").write_text(
         build_native_index_entry_source(), encoding="utf-8"
     );
-    # Ensure the shim exists so the entry import resolves; dev overwrites it with
-    # the real URL after this (see inject_dev_api_base_url).
-    if not (rn_dir / "__jacApiBase.js").exists() {
-        write_api_base_shim(rn_dir);
-    }
+
+    write_api_base_shim(rn_dir);
     console.print("  ✔ Wrote native entry (index.ts)", style="success");
 }
 

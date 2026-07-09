@@ -8,7 +8,13 @@ cl {
         s = useStudio();
         styles = s["styles"];
         return
-            <View style={([styles.switchTrack, styles.switchTrackOn] if on else styles.switchTrack)}>
+            <View
+                style={(
+                    [styles.switchTrack, styles.switchTrackOn]
+                        if on
+                        else styles.switchTrack
+                )}
+            >
                 <View style={styles.switchThumb}/>
             </View>;
     }

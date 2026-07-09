@@ -1,28 +1,28 @@
-# jachammer — a pocket Jac studio
+# jachammer - a pocket Jac studio
 
 The **mobile-first** counterpart to jacBuilder, built on
 [`@jac/mobui`](../../../jaclang/runtimelib/client/client_mobui.cl.jac). One Jac
 codebase compiles to a real **React Native** app (Expo/Metro) *and* the web
-(`react-native-web`) — no `<div>`, no `className`, no platform fork.
+(`react-native-web`) - no `<div>`, no `className`, no platform fork.
 
 Where [`hello`](../hello) is the primitive tour and [`littlex`](../littlex) is a
 small self-contained full-stack app, **jachammer** is the *product* showcase: a
 complete, multi-screen mobile client for the **hosted jacBuilder backend**. There
-is **no local backend in this directory** — jachammer authenticates with the
+is **no local backend in this directory** - jachammer authenticates with the
 runtime's `jacLogin`/SSO and drives jacBuilder's live walkers over
 `root spawn …()`, exactly as the jacBuilder web IDE does. It even speaks
 jacBuilder's own **WebSocket build protocol** so the AI assistant streams a real
 app into a live preview.
 
 ```bash
-# native — the primary target (real RN components on a device/simulator)
+# native - the primary target (real RN components on a device/simulator)
 jac start main.jac --client react-native --dev
 
-# web preview — View=<div>, Text=<span> via react-native-web
+# web preview - View=<div>, Text=<span> via react-native-web
 jac start main.jac --dev
 ```
 
-> You need a **jacBuilder account** to use the app — sign in with a username /
+> You need a **jacBuilder account** to use the app - sign in with a username /
 > password or **Continue with Google / GitHub** on the Auth screen. The backend
 > URL is `JB_API` in `lib/constants.cl.jac`
 > (`https://jac-builder-dev.jaseci.org` by default); the store pins it onto
@@ -42,7 +42,7 @@ pages).
 
 ```
 main.jac                      # <StudioProvider><Root/></StudioProvider> + screen switch + overlays
-hooks/useStudio.cl.jac        # the Context provider — all has-state, actions, the value dict, useStudio()
+hooks/useStudio.cl.jac        # the Context provider - all has-state, actions, the value dict, useStudio()
 services/api.cl.jac           # one async def:pub per jacBuilder walker (thin RPC layer)
 lib/
   constants.cl.jac            # JB_API, suggestion chips, plan catalogue
@@ -55,7 +55,7 @@ screens/                      # Home, Projects, Community, Activity, Profile, Ap
 components/                   # one small presentational component per file (cards, chips, pills, rows, composer, …)
 ```
 
-Platform splits use the `*.native.cl.jac` convention — e.g. `PreviewFrame` and
+Platform splits use the `*.native.cl.jac` convention - e.g. `PreviewFrame` and
 `SsoModal` have a native (WebView) implementation and a web fallback; the compiler
 picks the right one per target.
 
@@ -79,7 +79,7 @@ endpoint). One `async def:pub` per walker lives in `services/api.cl.jac`.
 | Account bootstrap | `me` | creates the server-side `UserProfile`, returns billing tier + balance |
 | Display name | `GET /user/me` | resolves the real name for SSO users (JWT carries only `user_id`) |
 | Projects | `project_ops(action=list/create/rename/delete)` | cards map from `_project_to_dict` |
-| **Session claim** | `project_ops(action="claim_session")` | binds the project to this client's sandbox — required before preview/files work |
+| **Session claim** | `project_ops(action="claim_session")` | binds the project to this client's sandbox - required before preview/files work |
 | **AI build turn** | `ai_chat(start)` → WS `ide_preview_stream` → `ai_chat(persist_done)` | see [The build pipeline](#the-build-pipeline) |
 | Model switch | `model_switch(project_id, model)` | picker list = the tier's real `models_allowed` |
 | Files | `ide_file_ops(action=list/read)` | reads the live project staging dir |
@@ -95,19 +95,19 @@ endpoint). One `async def:pub` per walker lives in `services/api.cl.jac`.
 ## The build pipeline
 
 This is the heart of jachammer and a faithful port of jacBuilder's real transport
-— **not** a poll-and-hope shim. When you send a prompt:
+- **not** a poll-and-hope shim. When you send a prompt:
 
 1. **`ai_chat(action="start")`** kicks off the turn server-side and returns a
    `run_id` + `checkpoint_ref`. (The *first* start on a fresh project can `504` at
-   the gateway while the JacCoder session cold-starts — jachammer treats a `504`
+   the gateway while the JacCoder session cold-starts - jachammer treats a `504`
    as "turn already running" and streams it rather than retrying blindly.)
-2. **WebSocket** `wss://…/api/builder_sv/ws/ide_preview_stream` — jachammer opens
+2. **WebSocket** `wss://…/api/builder_sv/ws/ide_preview_stream` - jachammer opens
    the socket with a fresh `connection_id` and polls the `ai_events` action every
    ~500 ms, draining the Redis-backed event stream. (The HTTP `poll` action can't
-   be used — the walker has no `connection_id` param, so it always drains empty.)
+   be used - the walker has no `connection_id` param, so it always drains empty.)
 3. Events flow in (`file_promoted`, `agent_activity`, … then **`agent_done`**);
    jachammer accumulates promoted files and reads the final reply.
-4. **`ai_chat(action="persist_done")`** finalizes the turn — this is what writes
+4. **`ai_chat(action="persist_done")`** finalizes the turn - this is what writes
    the assistant message and clears the server-side processing flag (without it,
    `load_history` never shows the reply).
 5. The chat reloads, the view switches to **Preview**, and the WebView reloads so
@@ -125,7 +125,7 @@ tabs for the whole turn; genuine failures surface as a `⚠️` message in chat.
 (`components/SsoModal.native.cl.jac`):
 
 - jac cloud only honours a **loopback** `client_callback`, so a mobile deep link
-  is rejected — instead the token lands on the web callback and jachammer
+  is rejected - instead the token lands on the web callback and jachammer
   **intercepts the `…?token=<JWT>` redirect** in the WebView before it renders,
   matching the token only at a real query boundary and requiring a proper JWT
   shape (so Google's own `id_token=` is never mistaken for it).
@@ -134,10 +134,10 @@ tabs for the whole turn; genuine failures surface as a `⚠️` message in chat.
 - **GitHub** renders fine in a WebView. **Google** blocks embedded WebViews by
   default, so the WebView presents a desktop user-agent to get through (a
   workaround suitable for internal/demo use; production should use the
-  system-browser popup — which requires a small jac-cloud change to accept the
+  system-browser popup - which requires a small jac-cloud change to accept the
   app's return scheme, or an on-device loopback server).
 - **Logout** calls `clearAuthCookies()` so the next sign-in shows the account
-  picker. This uses `@react-native-cookies/cookies` — a native module that is a
+  picker. This uses `@react-native-cookies/cookies` - a native module that is a
   **safe no-op in Expo Go** and activates in a **dev/standalone build**.
 
 ---
@@ -150,20 +150,20 @@ tabs for the whole turn; genuine failures surface as a `⚠️` message in chat.
   status / stop / restart, `deploy_monitoring`, community clone/publish, and the
   billing summary.
 - **Web checkout:** the billing **Upgrade / change plan** button opens jacBuilder's
-  web checkout — mobile can't do in-app plan purchase (jacBuilder itself defers to
+  web checkout - mobile can't do in-app plan purchase (jacBuilder itself defers to
   Stripe on the web).
 - **Client-side only:** the **Activity** feed and **notifications** badge are a
   local record of the operations *you* performed this session (jacBuilder exposes
   no mobile activity walker), and the **theme** toggle.
 - **Static UI copy (same as jacBuilder):** the Home suggestion chips and the plan
-  catalogue cards — jacBuilder hardcodes these on the client too. Your *own* tier +
+  catalogue cards - jacBuilder hardcodes these on the client too. Your *own* tier +
   balance is live via `me`; only the public catalogue is static.
 
 ---
 
 ## The mobUI vocabulary
 
-Authored entirely in `@jac/mobui` primitives — no raw HTML anywhere:
+Authored entirely in `@jac/mobui` primitives - no raw HTML anywhere:
 
 | primitive | used here for |
 |-----------|---------------|
@@ -195,7 +195,7 @@ dismisses the keyboard via `Keyboard.dismiss()`.
 A "forge" charcoal (`#0b0d12`) with an electric-violet primary (`#7c5cff`) for
 navigation/brand and a warm amber (`#ff9d3c`) for build/deploy actions. Status
 reads at a glance: green = running, amber = building, muted = stopped, red =
-failed. Full **dark / light / system** support — every colour/spacing/radius lives
+failed. Full **dark / light / system** support - every colour/spacing/radius lives
 in the token globals at the top of `ui/theme.cl.jac`; edit those to re-skin the
 whole app.
 
@@ -203,14 +203,14 @@ whole app.
 
 ## Running on a device
 
-- **Expo Go** — fastest inner loop; everything works except logout cookie-clearing
+- **Expo Go** - fastest inner loop; everything works except logout cookie-clearing
   (SSO still signs you in; the account picker after logout needs the dev build).
 
   ```bash
   cd .jac/mobile-rn && npx expo start -c
   ```
 
-- **Dev build** — needed for the native cookie module (account picker on logout):
+- **Dev build** - needed for the native cookie module (account picker on logout):
 
   ```bash
   cd .jac/mobile-rn
