@@ -21,14 +21,14 @@ async def _awaitPlatformReady {
 
 impl __createJacSchema(zodLib: any) -> any {
     handler = {
-        "apply": lambda target: any , thisArg: any , argumentsList: any -> any { return zodLib.object.apply(
+        "apply": lambda (target: any, thisArg: any, argumentsList: any) -> any { return zodLib.object.apply(
             zodLib, argumentsList
         ); },
-        "get": lambda target: any , prop: any , receiver: any -> any { return zodLib[
+        "get": lambda (target: any, prop: any, receiver: any) -> any { return zodLib[
             prop
         ]; }
     };
-    dummyFunc = lambda schema: any -> any { return zodLib.object(schema); };
+    dummyFunc = lambda (schema: any) -> any { return zodLib.object(schema); };
     return Reflect.construct(Proxy, [dummyFunc, handler]);
 }
 
@@ -316,9 +316,6 @@ impl jacSignup(
         }
         return {"success": True, "user_id": user_id};
     } else {
-        # `status` lets callers tell the failures apart — 409 (identity taken) is
-        # a user error; 5xx is the server being down and says nothing about the
-        # account. Without it every caller has to guess from the error string.
         error_text = await response.text();
         try {
             error_data = JSON.parse(error_text);

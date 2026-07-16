@@ -7,6 +7,92 @@ This page documents significant breaking changes in Jac and Jaseci that may affe
 
 ---
 
+### `jac create --list_jacpacks` renamed to `jac create --list`
+
+The flag never listed jacpacks. A `.jacpack` is a distributable bundle you produce with `jac create --pack <dir>` and consume with `jac create --use <path|url>`; the flag instead lists the **project kinds** (used with `--kind`) and **named variants** (used with `--use <name>`) registered in the template registry. The name promised one thing and printed another, and its underscore spelling (`--list_jacpacks`, since `--list-jacpacks` was rejected) made it easy to get wrong.
+
+This is a **clean break** -- there is no deprecated alias, and `--list_jacpacks` now fails with `unrecognized arguments`.
+
+| Old | New |
+|---|---|
+| `jac create --list_jacpacks` | `jac create --list` |
+
+**Impact:** replace `--list_jacpacks` with `--list` in scripts, CI, and docs. The short form `-l` is unchanged, so `jac create -l` works before and after. Nothing about the `.jacpack` format, `--pack`, or `--use` changes.
+
+### Kubernetes image-build pipeline removed
+
+`jac start --scale` no longer builds, tags, or pushes a Docker image. Copying the
+project source into the cluster ("no-image") is now the only deploy path, so a
+deploy needs no container registry and no registry credentials.
+
+Removed, with no replacement:
+
+| Removed | Notes |
+|---|---|
+| `--build` / `-b` on `jac start` | The flag no longer exists; `jac start --scale` is the whole deploy |
+| `--registry` on `jac start` | Ditto |
+| `image_registry`, `docker_image_name` under `[scale.kubernetes]` | Silently ignored if still present in `jac.toml` |
+| `DOCKER_USERNAME` / `DOCKER_PASSWORD` in `.env` | No longer read |
+| Local-cluster image loading (`kind load docker-image`, `k3d image import`, `minikube docker-env`) | Nothing to load -- pods run a stock base image |
+
+**Impact:** drop `--build` / `--registry` from any CI/CD script, and delete
+`image_registry` / `docker_image_name` from `jac.toml`. Pods now boot from a
+stock base image (`jaseci/jaclang`, or `python:3.12-slim` as a fallback) and
+receive your code as a source bundle on a PVC. If your cluster cannot pull that
+base image, set `python_image` under `[scale.kubernetes]` to one it can.
+
+---
+
+### `to cl:` / `to sv:` / `to na:` section markers removed
+
+The module-level colon-section-marker syntax has been removed. A `to cl:` / `to sv:` / `to na:` line used to switch every following statement into the client / server / native context until the next marker or end of file. This is a **clean break** -- writing `to cl:` (or `to sv:` / `to na:`) now fails to parse.
+
+Use the braced block form instead. It compiles to the same node and is now the canonical way to scope a region to a context:
+
+| Old | New |
+|---|---|
+| `to cl:` <br> `<client stmts>` | `cl { <client stmts> }` |
+| `to sv:` <br> `<server stmts>` | `sv { <server stmts> }` (or leave at module top level -- server is the default context) |
+| `to na:` <br> `<native stmts>` | `na { <native stmts> }` |
+
+**Impact:** rewrite any `to cl:` / `to sv:` / `to na:` section into the matching braced block, wrapping exactly the statements that belonged to that section. Single-statement prefixes (`cl def:pub foo() {...}`, `sv ...`, `na ...`) and file-extension contexts (`.cl.jac`, `.na.jac`) are unaffected. The `to` keyword is otherwise unchanged -- it still drives the iter-for loop (`for x = 0 to 10 by 1`).
+
+---
+
+### `jac add` merged into `jac install`
+
+The `jac add` verb has been removed; `jac install <pkg>` absorbs it. This is a **clean break** -- `jac add ...` now fails with a pointer to the new spelling.
+
+| Old | New |
+|---|---|
+| `jac add requests` | `jac install requests` |
+| `jac add pytest --dev` | `jac install pytest --dev` |
+| `jac add --git <url>` | `jac install --git <url>` |
+| `jac add --npm <pkg>` | `jac install --npm <pkg>` |
+| `jac add --shadcn <name>` | `jac install --shadcn <name>` |
+
+**Behavior change:** `jac install <pkg>` now **records the dependency in `jac.toml`** (what `jac add` did) instead of installing without tracking. Pass the new `--no-save` flag for the old untracked behavior; `--global` and `--dry-run` continue to never touch `jac.toml`.
+
+**Impact:** update scripts and CI invocations of `jac add` to `jac install`, and add `--no-save` to any `jac install <pkg>` call that relied on jac.toml staying unmodified. `jac remove` and `jac update` are unchanged.
+
+---
+
+### Plugin system removed; `[plugins.*]` config flattened
+
+The pluggy-style plugin/hook system has been removed entirely. The `jac plugins` command, the `JAC_DISABLED_PLUGINS` env var, the `[plugins]` `discovery`/`enabled`/`disabled` keys, and entry-point plugin discovery are all gone. Built-in features (byLLM, scale, the client/desktop framework, MCP, shadcn) are now called directly by core, and **external third-party plugins are no longer supported**.
+
+Feature config moved from the `[plugins.<name>]` namespace to top-level `[<name>]` tables:
+
+| Old | New |
+|---|---|
+| `[plugins.byllm]` / `[plugins.byllm.model]` | `[byllm]` / `[byllm.model]` |
+| `[plugins.scale.database]` | `[scale.database]` |
+| `[plugins.client.pwa]` | `[client.pwa]` |
+
+**Impact:** rename any `[plugins.<name>]` sections in existing `jac.toml` files to the top-level form; drop any `[plugins]` enable/disable lists and `jac plugins` invocations from scripts. Everything the built-in features do is always available -- there is nothing to enable. (Older entries below that mention `[plugins.<name>]` config predate this flattening; use the top-level names.)
+
+---
+
 ### Project kinds renamed to deliverable-oriented names
 
 The `jac create --kind` / `[project] kind` taxonomy was renamed to describe **what you ship**. The old names are **not** accepted as aliases -- `jac create --kind pypi-package` and a `jac.toml` carrying `kind = "fullstack"` both fail with `Unknown project kind`.
@@ -36,9 +122,9 @@ The `jac create --kind` / `[project] kind` taxonomy was renamed to describe **wh
 
 - There is no more `pip install byllm` / `jac install -e jac-byllm`. byLLM ships inside the `jac` binary.
 - Code that did `import from byllm...` must change to `import from jaclang.byllm...` (e.g. `import from byllm.lib { Model }` becomes `import from jaclang.byllm.lib { Model }`; `import from byllm.llm { Model }` becomes `import from jaclang.byllm.llm { Model }`).
-- byLLM's third-party dependencies (litellm, pillow, ...) are no longer installed via the `byllm` package. Instead they form the `llm` capability: declare `[plugins.byllm]` in `jac.toml` and run `jac install`; the capability registry resolves litellm + pillow into the project's `.jac/venv`. Optional runtimes are separate capabilities -- `llm.local` (llama-cpp-python, huggingface_hub), `llm.mcp` (mcp), `llm.video` (opencv). Using a real model without the `llm` capability raises an actionable "run `jac install`" error.
+- byLLM's third-party dependencies (litellm, pillow, ...) are no longer installed via the `byllm` package. Instead they form the `llm` capability: declare `[byllm]` in `jac.toml` and run `jac install`; the capability registry resolves litellm + pillow into the project's `.jac/venv`. Optional runtimes are separate capabilities -- `llm.local` (llama-cpp-python, huggingface_hub), `llm.mcp` (mcp), `llm.video` (opencv). Using a real model without the `llm` capability raises an actionable "run `jac install`" error.
 
-**Unchanged from a user's perspective:** the `by llm()` syntax, `[plugins.byllm.*]` config, and the `jac model` CLI behave exactly as before -- only the packaging and import path changed.
+**Unchanged from a user's perspective:** the `by llm()` syntax, `[byllm.*]` config, and the `jac model` CLI behave exactly as before -- only the packaging and import path changed.
 
 ---
 
@@ -53,7 +139,7 @@ The `jac create --kind` / `[project] kind` taxonomy was renamed to describe **wh
 - `jac plugins enable scale` is no longer needed -- scale is always available.
 - Scale's optional third-party dependencies (fastapi, pymongo, redis, kubernetes, prometheus-client, ...) are no longer installed via package extras. Instead, declare the matching `[scale.*]` config in `jac.toml` and run `jac install`; the capability registry resolves the required libraries into the project's `.jac/venv`.
 
-**Unchanged from a user's perspective:** `jac start`, `jac start --scale`, and all `[scale.*]` / `[plugins.scale.*]` config behave exactly as before -- only the packaging changed.
+**Unchanged from a user's perspective:** `jac start`, `jac start --scale`, and all `[scale.*]` config behave exactly as before -- only the packaging changed.
 
 ---
 
@@ -893,21 +979,21 @@ jac start main.jac
 
 # Deploy to Kubernetes (jac-scale plugin)
 jac start main.jac --scale
-jac start main.jac --scale --build  # with build
 ```
 
 **Migration Steps:**
 
 1. Replace all `jac serve` commands with `jac start`
 2. Replace `jac scale` commands with `jac start --scale`
-3. Replace `jac scale -b` with `jac start --scale --build`
+3. Drop `jac scale -b` -- the image build has since been removed entirely (see
+   [Kubernetes image-build pipeline removed](#kubernetes-image-build-pipeline-removed))
 4. Update any CI/CD scripts or documentation that reference these commands
 
 **Key Changes:**
 
 - `jac serve` → `jac start`
 - `jac scale` → `jac start --scale`
-- `jac scale -b` → `jac start --scale --build` (or `jac start --scale -b`)
+- `jac scale -b` → no replacement; `jac start --scale` is the whole deploy
 - The `jac scale destroy` command is used for removing Kubernetes deployments
 
 #### 2. Build Artifacts Consolidated to `.jac/` Directory
@@ -965,10 +1051,10 @@ my-project/
    .jac/
    ```
 
-3. If using custom `shelf_db_path` in jac-scale config, update the path:
+3. If using custom `shelf_db_path` in scale config, update the path:
 
    ```toml
-   [plugins.scale.database]
+   [scale.database]
    shelf_db_path = ".jac/data/anchor_store.db"
    ```
 
