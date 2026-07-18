@@ -137,9 +137,14 @@ def build_bootstrap_init_container(
     cache = f"{BUNDLE_MOUNT_PATH}/.cache";
     commands.append(
         f'if mkdir -p {cache}/pip 2>/dev/null; then '
+        f'chmod 0777 {cache} {cache}/pip 2>/dev/null || true; '
         f'if [ "$(du -sm {cache} 2>/dev/null | cut -f1)" -gt 512 ] 2>/dev/null; then '
-        f'rm -rf {cache}/pip && mkdir -p {cache}/pip; fi; '
-        f'export PIP_CACHE_DIR={cache}/pip; '
+        f'rm -rf {cache}/pip && mkdir -p {cache}/pip && '
+        f'chmod 0777 {cache}/pip 2>/dev/null || true; fi; '
+        f'if touch {cache}/pip/.writable 2>/dev/null; then '
+        f'rm -f {cache}/pip/.writable; export PIP_CACHE_DIR={cache}/pip; '
+        f'else export PIP_CACHE_DIR=/tmp/jac-pip-cache; fi; '
+        f'else export PIP_CACHE_DIR=/tmp/jac-pip-cache; '
         f'fi'
     );
 
