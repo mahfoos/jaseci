@@ -112,12 +112,23 @@ def write_native_entry(rn_dir: Path) {
     console.print("  ✔ Wrote native entry (index.ts)", style="success");
 }
 
+def _strip_module_ext(name: str) -> str {
+    for ext in [".native.cl.jac", ".cl.jac", ".impl.jac", ".test.jac", ".jac"] {
+        if name.endswith(ext) {
+            return name[:-len(ext)];
+        }
+    }
+    return name;
+}
+
 def entry_module_for(entry_file: Path, project_dir: Path) -> str {
     try {
-        rel = entry_file.resolve().relative_to(project_dir.resolve());
-        return str(rel.with_suffix("")).replace(os.sep, "/");
+        rel = str(entry_file.resolve().relative_to(project_dir.resolve())).replace(
+            os.sep, "/"
+        );
+        return _strip_module_ext(rel);
     } except ValueError {
-        return entry_file.stem;
+        return _strip_module_ext(entry_file.name);
     }
 }
 
