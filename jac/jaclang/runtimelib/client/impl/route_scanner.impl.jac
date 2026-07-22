@@ -118,6 +118,16 @@ impl RouteScanner._file_to_route_path(filename: str) -> str {
     return filename;
 }
 
+def _sanitize_segment(segment: str) -> list[str] {
+    fragments: list[str] = [];
+    for fragment in re.split(r'[^0-9A-Za-z]+', segment) {
+        if len(fragment) > 0 {
+            fragments.append(fragment[0].upper() + fragment[1:]);
+        }
+    }
+    return fragments;
+}
+
 impl RouteScanner._file_to_component_name(file_path: Path) -> str {
     try {
         relative = file_path.relative_to(self.pages_dir);
@@ -131,27 +141,36 @@ impl RouteScanner._file_to_component_name(file_path: Path) -> str {
         }
 
         clean = re.sub(r'^\[\.\.\.(\w+)\]$', r'\1', part);
-
         clean = re.sub(r'^\[(\w+)\]$', r'\1', clean);
-        parts.append(clean[0].upper() + clean[1:] if len(clean) > 0 else clean);
+        parts.extend(_sanitize_segment(clean));
     }
     return self.COMPONENT_PREFIX + "".join(parts);
 }
 
 impl RouteScanner._detect_collisions(routes: list[RouteEntry]) -> None {
-    seen: dict[(str, Path)] = {};
-    for route in routes {
-        if route.is_layout {
-            continue;
-        }
-        if route.path in seen {
+    seen_paths: dict[(str, Path)] = {};
+    seen_imports: dict[(str, Path)] = {};
+    all_entries = routes + list(self._layouts.values());
+    for entry in all_entries {
+        if (not entry.is_layout) and (entry.path in seen_paths) {
             raise ClientBundleError(
-                f"Route collision: '{route.path}' is defined by both "
-                f"'{seen[route.path]}' and '{route.file_path}'. "
+                f"Route collision: '{entry.path}' is defined by both "
+                f"'{seen_paths[entry.path]}' and '{entry.file_path}'. "
                 f"Remove one of them."
             );
         }
-        seen[route.path] = route.file_path;
+        if not entry.is_layout {
+            seen_paths[entry.path] = entry.file_path;
+        }
+        other = seen_imports.get(entry.component_import);
+        if other {
+            raise ClientBundleError(
+                f"Route import-name collision: '{other}' and '{entry.file_path}' "
+                f"both sanitize to the JS identifier '{entry.component_import}'. "
+                f"Rename one of the files."
+            );
+        }
+        seen_imports[entry.component_import] = entry.file_path;
     }
 }
 
