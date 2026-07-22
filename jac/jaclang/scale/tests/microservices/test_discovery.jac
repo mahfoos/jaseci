@@ -399,9 +399,7 @@ test "a subdir service discovered only via sv import resolves to its file" {
     (sub / "social_graph.jac").write_text(
         "def:pub setup_profile -> int { return 1; }\n"
     );
-    (sub / "frontend.cl.jac").write_text(
-        "sv import from .social_graph { setup_profile }\n"
-    );
+    (sub / "api.jac").write_text("sv import from .social_graph { setup_profile }\n");
     try {
         files = discover_sv_service_files(str(tmp / "main.jac"));
         assert files.get("social_graph") == os.path.join(
@@ -415,10 +413,64 @@ test "a subdir service discovered only via sv import resolves to its file" {
     }
 }
 
+test "scan_markers ignores sv imports in a .cl.jac client module" {
+    m = scan_markers(
+        "sv import from social_graph { setup_profile }\n", "frontend.cl.jac"
+    );
+    assert m is not None;
+    assert m.sv_import_targets == [];
+}
+
+test "scan_markers ignores sv imports inside a cl block" {
+    m = scan_markers(
+        "cl {\nsv import from social_graph { setup_profile }\n}\n", "main.jac"
+    );
+    assert m is not None;
+    assert m.sv_import_targets == [];
+}
+
+test "a client-only sv import does not trigger service discovery" {
+    tmp = Path(tempfile.mkdtemp());
+    (tmp / "jac.toml").write_text("[project]\nname = \"app\"\n");
+    (tmp / "main.jac").write_text("with entry { print(1); }\n");
+    (tmp / "util_svc.jac").write_text("def:pub helper -> int { return 1; }\n");
+    pages = tmp / "pages";
+    pages.mkdir();
+    (pages / "Home.cl.jac").write_text(
+        "sv import from ..util_svc { helper }\ndef:pub Home -> None {\n    helper();\n}\n"
+    );
+    try {
+        routes = discover_sv_services(str(tmp / "main.jac"));
+        assert routes == {} , (
+            f"client-side sv import must not flip on microservice mode, got: {routes}"
+        );
+        assert should_enter_local_ms(None, False, False, bool(routes)) == False;
+    } finally {
+        shutil.rmtree(str(tmp), ignore_errors=True);
+    }
+}
+
+test "a cl-block sv import does not trigger service discovery" {
+    tmp = Path(tempfile.mkdtemp());
+    (tmp / "jac.toml").write_text("[project]\nname = \"app\"\n");
+    (tmp / "main.jac").write_text(
+        "cl {\nsv import from util_svc { helper }\n}\nwith entry { print(1); }\n"
+    );
+    (tmp / "util_svc.jac").write_text("def:pub helper -> int { return 1; }\n");
+    try {
+        routes = discover_sv_services(str(tmp / "main.jac"));
+        assert routes == {} , (
+            f"cl-block sv import must not flip on microservice mode, got: {routes}"
+        );
+    } finally {
+        shutil.rmtree(str(tmp), ignore_errors=True);
+    }
+}
+
 test "a dotted sv-import target resolves to the service module stem" {
-    # A bridge that does not sit in the service's own directory addresses it
-    # with a dotted target; discovery is keyed by module stem, so the dotted
-    # form must be reduced or it registers a phantom service with no file.
+    # A server-side bridge that does not sit in the service's own directory
+    # addresses it with a dotted target; discovery is keyed by module stem, so
+    # the dotted form must be reduced or it registers a phantom service.
     import os;
     tmp = Path(tempfile.mkdtemp());
     (tmp / "jac.toml").write_text("[project]\nname = \"app\"\n");
@@ -426,11 +478,9 @@ test "a dotted sv-import target resolves to the service module stem" {
     svc = tmp / "services";
     svc.mkdir();
     (svc / "ideServer.jac").write_text("def:pub ping -> int { return 1; }\n");
-    bridge = tmp / "apps" / "mobile";
-    bridge.mkdir(parents=True);
-    (bridge / "bridge.cl.jac").write_text(
-        "sv import from services.ideServer { ping }\n"
-    );
+    bridge = tmp / "apps";
+    bridge.mkdir();
+    (bridge / "bridge.jac").write_text("sv import from services.ideServer { ping }\n");
     try {
         files = discover_sv_service_files(str(tmp / "main.jac"));
         assert files.get("ideServer") == os.path.join("services", "ideServer.jac") , (

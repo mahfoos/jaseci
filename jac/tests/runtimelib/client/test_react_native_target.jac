@@ -267,13 +267,21 @@ test "react native target addresses the entry by project-relative module path" {
     ) == 2 , ("both build() and dev() must resolve the entry module the same way");
 }
 
-test "react native compiler selects .native.cl.jac variants when available" {
+test "react native compiler selects .native variants when available" {
     impl_path = _client_dir / "impl" / "jac_client_compiler.impl.jac";
     impl_content = impl_path.read_text();
 
     assert "target_name == \"react-native\"" in impl_content;
-    assert "native_candidate" in impl_content;
-    assert ".native.cl.jac" in impl_content;
+    assert "_native_variant" in impl_content;
+    assert ".native.cl.jac" in impl_content , (
+        "the stem probe must cover the suffixed variant pair"
+    );
+    assert ".native.jac" in impl_content , (
+        "the stem probe must cover the markerless variant pair"
+    );
+    assert "base_stem" in impl_content , (
+        "variant resolution keys on the module stem, not the .cl.jac extension"
+    );
     assert "target_name=target_name" in impl_content;
     assert "_scan_and_compile_pages(" in impl_content;
     assert "target_name=target_name" in impl_content.split("_scan_and_compile_pages(")[
