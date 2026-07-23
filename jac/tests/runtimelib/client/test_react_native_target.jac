@@ -215,6 +215,56 @@ test "native runtime file ships parallel to the web runtime" {
     assert "_getEnumOptions" in impl_content;
 }
 
+test "mobui vocabulary re-exports every primitive it imports" {
+    # @jac/mobui is a sealed vocabulary: each name is imported from
+    # react-native under an RN-prefixed alias and re-exported unprefixed.
+    # The two lists are hand-maintained, so pin them against each other —
+    # an import with no matching glob:pub is invisible to mobUI authors.
+    mobui = _client_dir / "client_mobui.cl.jac";
+    assert mobui.exists() , f"client_mobui.cl.jac not found at {mobui}";
+    content = mobui.read_text();
+
+    expected = [
+        "View",
+        "Text",
+        "Pressable",
+        "TextInput",
+        "Image",
+        "ScrollView",
+        "StyleSheet",
+        "Animated",
+        "Easing",
+        "KeyboardAvoidingView",
+        "Keyboard",
+        "Platform",
+        "ActivityIndicator",
+        "useWindowDimensions",
+        "FlatList",
+        "SectionList",
+        "RefreshControl",
+        "Modal",
+        "Switch",
+        "StatusBar",
+        "Dimensions",
+        "Alert",
+        "Linking"
+    ];
+    for name in expected {
+        assert f"{name} as RN{name}" in content , (
+            f"{name} is not imported from react-native in client_mobui.cl.jac"
+        );
+        assert f"{name} = RN{name}" in content , (
+            f"{name} is imported but never re-exported via glob:pub"
+        );
+    }
+
+    # The vocabulary is react-native only — pulling from a second package
+    # would make it a required dependency of every mobUI web build too.
+    assert "from 'react-native'" in content;
+    assert "react-native-web" not in content;
+    assert "react-native-safe-area-context" not in content;
+}
+
 test "JacClientCompiler maps targets to platform runtimes" {
     # The compiler derives the platform runtime from target_name via
     # PLATFORM_RUNTIME_FILES so the React Native target needs no bundler
